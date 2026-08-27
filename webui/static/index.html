@@ -1016,6 +1016,13 @@
             </div>
         </div>
 
+        <!-- ComfyUI 健康状态横幅 -->
+        <div id="comfyuiHealthBanner" style="display:none; padding:12px 16px; margin-bottom:16px; border-radius:8px; font-size:14px; align-items:center; gap:10px;">
+            <span id="healthIcon" style="font-size:20px;"></span>
+            <span id="healthMessage" style="flex:1;"></span>
+            <button onclick="checkComfyUIHealth()" style="padding:4px 12px; border:1px solid rgba(0,0,0,0.2); background:rgba(255,255,255,0.5); border-radius:4px; cursor:pointer; font-size:12px;">刷新</button>
+        </div>
+
         <div class="content">
             <form id="generateForm">
                 <!-- 工作流选择 -->
@@ -1132,11 +1139,11 @@
                     <div class="params-grid">
                         <div>
                             <label for="durationInput" style="font-size: 12px; color: #666;">视频时长（秒）</label>
-                            <input type="number" id="durationInput" value="5" min="1" max="30" step="0.5">
+                            <input type="number" id="durationInput" value="5" min="1" max="15" step="0.5">
                         </div>
                         <div>
                             <label for="resolutionInput" style="font-size: 12px; color: #666;">分辨率质量</label>
-                            <input type="range" id="resolutionInput" min="0.1" max="2.0" step="0.1" value="1.0" oninput="updateResolutionLabel(this.value)">
+                            <input type="range" id="resolutionInput" min="0.1" max="2.0" step="0.1" value="0.4" oninput="updateResolutionLabel(this.value)">
                             <div id="resolutionLabel" style="font-size: 12px; color: #667eea; margin-top: 4px;">1.0 MP (标准质量)</div>
                         </div>
                         <div>
@@ -2180,7 +2187,7 @@
                 item.className = 'task-item';
 
                 const statusLabels = {
-                    pending: '⏸ 等待中',
+                    pending: comfyUIAvailable ? '⏸ 等待中' : '⏳ 等待 ComfyUI 启动',
                     queued: '⏳ 排队中',
                     processing: '⚙️ 处理中',
                     completed: '✅ 完成',
@@ -2716,7 +2723,10 @@
             const counterEl = document.getElementById('taskCounter');
             if (counterEl) {
                 const items = [];
-                if (pending > 0) items.push(`<span style="padding:2px 8px;background:#fff3e0;border-radius:3px;color:#e65100;">⏸ ${pending} 等待提交</span>`);
+                if (pending > 0) {
+                    const pendingLabel = comfyUIAvailable ? '⏸ 等待提交' : '⏳ 等待ComfyUI';
+                    items.push(`<span style="padding:2px 8px;background:#fff3e0;border-radius:3px;color:#e65100;">${pendingLabel} ${pending}</span>`);
+                }
                 if (queued > 0) items.push(`<span style="padding:2px 8px;background:#e3f2fd;border-radius:3px;color:#1565c0;">⏳ ${queued} 排队中</span>`);
                 if (processing > 0) items.push(`<span style="padding:2px 8px;background:#e8f5e9;border-radius:3px;color:#2e7d32;">⚙️ ${processing} 处理中</span>`);
                 if (completed > 0) items.push(`<span style="padding:2px 8px;background:#e0f2f1;border-radius:3px;color:#00695c;">✅ ${completed} 完成</span>`);
@@ -3033,6 +3043,11 @@
                 return;
             }
 
+            // 如果 ComfyUI 未就绪，友好提示但仍然允许提交（任务会等待自动提交）
+            if (!comfyUIAvailable) {
+                showStatus('⏳ ComfyUI 正在启动中，任务已加入等待队列，启动后将自动提交', 'info');
+            }
+
             const submitBtn = document.getElementById('submitBtn');
             submitBtn.textContent = '⏳ 准备数据中...';
             document.getElementById('resultBox').classList.remove('show');
@@ -3189,7 +3204,61 @@
 
         // ========== 初始化 ==========
 
+        // ========== ComfyUI 健康检查 ==========
+
+        let comfyUIHealthTimer = null;
+        let comfyUIAvailable = true; // 默认假设可用
+
+        async function checkComfyUIHealth() {
+            try {
+                const resp = await fetch('/api/comfyui-health');
+                const data = await resp.json();
+                const banner = document.getElementById('comfyuiHealthBanner');
+                const icon = document.getElementById('healthIcon');
+                const msg = document.getElementById('healthMessage');
+
+                if (data.available) {
+                    comfyUIAvailable = true;
+                    banner.style.display = 'none';
+                    // 停止轮询
+                    if (comfyUIHealthTimer) {
+                        clearInterval(comfyUIHealthTimer);
+                        comfyUIHealthTimer = null;
+                    }
+                } else {
+                    comfyUIAvailable = false;
+                    banner.style.display = 'flex';
+                    banner.style.background = '#fff3cd';
+                    banner.style.border = '1px solid #ffc107';
+                    banner.style.color = '#856404';
+                    icon.textContent = '⏳';
+                    msg.textContent = data.message || 'ComfyUI 正在启动中，任务将自动提交...';
+
+                    // 每 5 秒重新检查
+                    if (!comfyUIHealthTimer) {
+                        comfyUIHealthTimer = setInterval(checkComfyUIHealth, 5000);
+                    }
+                }
+            } catch (e) {
+                // 检查失败时也显示提示
+                const banner = document.getElementById('comfyuiHealthBanner');
+                const icon = document.getElementById('healthIcon');
+                const msg = document.getElementById('healthMessage');
+                comfyUIAvailable = false;
+                banner.style.display = 'flex';
+                banner.style.background = '#f8d7da';
+                banner.style.border = '1px solid #f5c6cb';
+                banner.style.color = '#721c24';
+                icon.textContent = '❌';
+                msg.textContent = '无法检查 ComfyUI 状态，请确认服务已启动';
+                if (!comfyUIHealthTimer) {
+                    comfyUIHealthTimer = setInterval(checkComfyUIHealth, 5000);
+                }
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', async () => {
+            checkComfyUIHealth();  // 检查 ComfyUI 是否可用
             await loadModels();
             await loadPromptTemplates();
             setupFileUploads();
