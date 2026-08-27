@@ -295,6 +295,28 @@ def submit_pending_tasks():
                     print(f"✅ 已提交到 ComfyUI 队列: {task_id[:8]}... (prompt={prompt_id[:8]}...)")
                     # 注意：不在此处剥离 base64，因为任务可能需要重新提交
                     # base64 会在任务完成后由 poll_processing_tasks() 剥离
+                elif response.status_code in (503, 504) and "COMFYUI_NOT_AVAILABLE" in response.text:
+                    # ComfyUI 未启动，保持 pending 状态，等下次循环自动重试
+                    conn = get_db()
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        UPDATE tasks SET status = 'pending', started_at = NULL
+                        WHERE id = ?
+                    """, (task_id,))
+                    conn.commit()
+                    conn.close()
+                    print(f"⏳ ComfyUI 未启动，任务 {task_id[:8]}... 等待下次重试")
+                elif response.status_code == 504 and "COMFYUI_TIMEOUT" in response.text:
+                    # ComfyUI 响应超时（可能正在启动），保持 pending 重试
+                    conn = get_db()
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        UPDATE tasks SET status = 'pending', started_at = NULL
+                        WHERE id = ?
+                    """, (task_id,))
+                    conn.commit()
+                    conn.close()
+                    print(f"⏳ ComfyUI 响应超时，任务 {task_id[:8]}... 等待下次重试")
                 else:
                     error_msg = f"提交失败: {response.status_code} - {response.text}"
                     error_msg = enrich_oom_error(error_msg)
@@ -1007,6 +1029,37 @@ async def api_status():
             "api_status": "error",
             "api_url": API_BASE_URL,
             "message": str(e)
+        }
+
+@app.get("/api/comfyui-health")
+async def comfyui_health():
+    """检查 ComfyUI 是否可用（用于前端显示友好提示）"""
+    try:
+        resp = requests.get(f"{API_BASE_URL}/health", timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            return {
+                "available": True,
+                "version": data.get("version", "unknown"),
+                "message": "ComfyUI 运行正常"
+            }
+        else:
+            return {
+                "available": False,
+                "version": None,
+                "message": "ComfyUI 正在启动中，请稍候..."
+            }
+    except requests.exceptions.ConnectionError:
+        return {
+            "available": False,
+            "version": None,
+            "message": "ComfyUI 代理服务未启动"
+        }
+    except Exception as e:
+        return {
+            "available": False,
+            "version": None,
+            "message": f"检查失败: {str(e)}"
         }
 
 @app.post("/api/upload")
