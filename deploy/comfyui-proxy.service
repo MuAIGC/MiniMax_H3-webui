@@ -1,0 +1,16 @@
+[Unit]
+Description=ComfyUI Multi-Workflow API Proxy Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root
+ExecStart=/root/miniconda3/envs/comfyui/bin/python3 /root/comfyui_proxy_server.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/root/proxy_server.log
+StandardError=append:/root/proxy_server.log
+
+[Install]
+WantedBy=multi-user.target

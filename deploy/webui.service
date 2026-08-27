@@ -1,0 +1,17 @@
+[Unit]
+Description=ComfyUI WebUI Service
+After=network.target
+
+[Service]
+StandardOutput=append:/root/webui/server.log
+StandardError=append:/root/webui/server.log
+Type=simple
+User=root
+WorkingDirectory=/root/webui
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/root/miniconda3/envs/comfyui/bin/python3 /root/webui/server.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
