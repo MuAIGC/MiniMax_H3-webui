@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工作流管理 - ComfyUI WebUI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #d32f2f;
+        }
+
+        .workflow-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .workflow-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.3s;
+        }
+
+        .workflow-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.2);
+        }
+
+        .workflow-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 15px;
+        }
+
+        .workflow-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .workflow-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .workflow-description {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 15px;
+            line-height: 1.5;
+        }
+
+        .workflow-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .meta-tag {
+            background: #f0f4ff;
+            color: #667eea;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .workflow-config {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+
+        .modal.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            max-width: 800px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 30px;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #999;
+        }
+
+        .close-btn:hover {
+            color: #333;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+            font-size: 14px;
+        }
+
+        .form-group input[type="text"],
+        .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input[type="text"]:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 300px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .status.show {
+            display: block;
+        }
+
+        .status.success {
+            background: #e8f5e9;
+            color: #388e3c;
+            border: 1px solid #81c784;
+        }
+
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+            border: 1px solid #ef5350;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .empty-state svg {
+            width: 80px;
+            height: 80px;
+            fill: #ccc;
+            margin-bottom: 20px;
+        }
+
+        .back-link {
+            text-align: center;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .back-link a {
+            color: #667eea;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .back-link a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                padding: 20px;
+            }
+
+            .workflow-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .toolbar {
+                flex-direction: column;
+            }
+
+            .btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 工作流管理</h1>
+            <p>管理 ComfyUI 工作流配置</p>
+        </div>
+
+        <div class="content">
+            <div class="toolbar">
+                <button class="btn btn-primary" onclick="showCreateModal()">
+                    ➕ 添加工作流
+                </button>
+                <button class="btn btn-secondary" onclick="loadWorkflows()">
+                    🔄 刷新
+                </button>
+            </div>
+
+            <div id="status" class="status"></div>
+
+            <div id="workflowList"></div>
+
+            <div class="back-link">
+                <a href="/">← 返回用户界面</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- 创建/编辑模态框 -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title" id="modalTitle">添加工作流</h2>
+                <button class="close-btn" onclick="closeModal()">×</button>
+            </div>
+
+            <div id="editStatus" class="status"></div>
+
+            <form id="editForm">
+                <input type="hidden" id="originalModelName">
+
+                <div class="form-group">
+                    <label for="modelName">模型名称 *</label>
+                    <input type="text" id="modelName" required placeholder="例如: MiniMax_H3">
+                </div>
+
+                <div class="form-group">
+                    <label for="description">描述</label>
+                    <input type="text" id="description" placeholder="工作流描述">
+                </div>
+
+                <div class="form-group">
+                    <label for="configJson">配置 JSON *</label>
+                    <textarea id="configJson" required placeholder="粘贴完整的工作流配置 JSON"></textarea>
+                </div>
+
+                <div style="display: flex; gap: 15px;">
+                    <button type="submit" class="btn btn-primary" style="flex: 1;">
+                        💾 保存
+                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal()">
+                        取消
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let workflows = [];
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            loadWorkflows();
+        });
+
+        // 加载工作流列表
+        async function loadWorkflows() {
+            try {
+                const response = await fetch('/api/workflows');
+                const data = await response.json();
+                workflows = data.workflows;
+                renderWorkflows();
+            } catch (error) {
+                showStatus('加载工作流失败: ' + error.message, 'error');
+            }
+        }
+
+        // 渲染工作流列表
+        function renderWorkflows() {
+            const container = document.getElementById('workflowList');
+
+            if (workflows.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
+                        </svg>
+                        <p>暂无工作流配置</p>
+                        <p>点击"添加工作流"开始创建</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = '<div class="workflow-grid">' + workflows.map(wf => `
+                <div class="workflow-card">
+                    <div class="workflow-header">
+                        <div>
+                            <div class="workflow-title">${wf.model_name}</div>
+                        </div>
+                        <div class="workflow-actions">
+                            <button class="btn btn-secondary" onclick="editWorkflow('${wf.model_name}')" style="padding: 8px 16px; font-size: 13px;">
+                                ✏️ 编辑
+                            </button>
+                            <button class="btn btn-danger" onclick="deleteWorkflow('${wf.model_name}')" style="padding: 8px 16px; font-size: 13px;">
+                                🗑️ 删除
+                            </button>
+                        </div>
+                    </div>
+                    <div class="workflow-description">${wf.description || '无描述'}</div>
+                    <div class="workflow-meta">
+                        <span class="meta-tag">📄 ${wf.filename}</span>
+                        ${wf.config.inputs ? `<span class="meta-tag">📥 ${Object.keys(wf.config.inputs).length} 个输入</span>` : ''}
+                        ${wf.config.output ? `<span class="meta-tag">📤 1 个输出</span>` : ''}
+                    </div>
+                    <details>
+                        <summary style="cursor: pointer; color: #667eea; font-size: 13px; margin-bottom: 10px;">查看配置</summary>
+                        <div class="workflow-config">${JSON.stringify(wf.config, null, 2)}</div>
+                    </details>
+                </div>
+            `).join('') + '</div>';
+        }
+
+        // 显示创建模态框
+        function showCreateModal() {
+            document.getElementById('modalTitle').textContent = '添加工作流';
+            document.getElementById('editForm').reset();
+            document.getElementById('originalModelName').value = '';
+            document.getElementById('editModal').classList.add('show');
+        }
+
+        // 编辑工作流
+        async function editWorkflow(modelName) {
+            try {
+                const response = await fetch(`/api/workflows/${modelName}`);
+                const data = await response.json();
+
+                document.getElementById('modalTitle').textContent = '编辑工作流';
+                document.getElementById('originalModelName').value = modelName;
+                document.getElementById('modelName').value = data.config.model_name;
+                document.getElementById('description').value = data.config.description || '';
+                document.getElementById('configJson').value = JSON.stringify(data.config, null, 2);
+                document.getElementById('editModal').classList.add('show');
+            } catch (error) {
+                showStatus('加载工作流配置失败: ' + error.message, 'error');
+            }
+        }
+
+        // 关闭模态框
+        function closeModal() {
+            document.getElementById('editModal').classList.remove('show');
+            hideEditStatus();
+        }
+
+        // 删除工作流
+        async function deleteWorkflow(modelName) {
+            if (!confirm(`确定要删除工作流 "${modelName}" 吗？`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/workflows/${modelName}`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || '删除失败');
+                }
+
+                showStatus(`✅ 工作流 "${modelName}" 删除成功`, 'success');
+                await loadWorkflows();
+            } catch (error) {
+                showStatus('删除失败: ' + error.message, 'error');
+            }
+        }
+
+        // 表单提交
+        document.getElementById('editForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const originalName = document.getElementById('originalModelName').value;
+            const modelName = document.getElementById('modelName').value.trim();
+            const description = document.getElementById('description').value.trim();
+            const configJson = document.getElementById('configJson').value.trim();
+
+            // 验证 JSON
+            let config;
+            try {
+                config = JSON.parse(configJson);
+            } catch (error) {
+                showEditStatus('❌ JSON 格式错误: ' + error.message, 'error');
+                return;
+            }
+
+            // 确保配置包含必要字段
+            config.model_name = modelName;
+            config.description = description;
+
+            const isEdit = originalName !== '';
+            const url = isEdit ? `/api/workflows/${originalName}` : '/api/workflows';
+            const method = isEdit ? 'PUT' : 'POST';
+
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || '保存失败');
+                }
+
+                showEditStatus(`✅ 工作流${isEdit ? '更新' : '创建'}成功`, 'success');
+                setTimeout(() => {
+                    closeModal();
+                    loadWorkflows();
+                }, 1000);
+            } catch (error) {
+                showEditStatus('保存失败: ' + error.message, 'error');
+            }
+        });
+
+        // 显示状态
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status show ${type}`;
+            setTimeout(() => {
+                status.className = 'status';
+            }, 5000);
+        }
+
+        function showEditStatus(message, type) {
+            const status = document.getElementById('editStatus');
+            status.textContent = message;
+            status.className = `status show ${type}`;
+        }
+
+        function hideEditStatus() {
+            document.getElementById('editStatus').className = 'status';
+        }
+    </script>
+</body>
+</html>

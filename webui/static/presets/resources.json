@@ -1,0 +1,27 @@
+{
+  "images": [
+    {
+      "name": "女性肖像1",
+      "filename": "sample_portrait.jpg",
+      "description": "年轻女性肖像，适合新闻播报"
+    },
+    {
+      "name": "人物肖像2",
+      "filename": "sample_person2.jpg",
+      "description": "专业人物肖像，适合商务演示"
+    },
+    {
+      "name": "人物肖像3",
+      "filename": "sample_person3.jpg",
+      "description": "自然风格肖像，适合教育讲解"
+    }
+  ],
+  "audios": [
+    {
+      "name": "新闻播报音频",
+      "filename": "sample_news.wav",
+      "description": "专业新闻播报风格音频，时长约10秒",
+      "duration": 10
+    }
+  ]
+}

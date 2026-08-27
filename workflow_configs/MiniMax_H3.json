@@ -1,0 +1,104 @@
+{
+  "model_name": "MiniMax_H3",
+  "workflow_path": "/mnt/storage/MMX_ComfyUI-user/default/workflows/example_workflows/视频-Video-演示工作流/图片数字人-MiniMax-H3-4step加速-图音生视频-260810a-手机版.json",
+  "description": "图片数字人-MiniMax-H3-4step加速-图音生视频",
+  "inputs": {
+    "images": {
+      "type": "list",
+      "required": true,
+      "max_count": 9,
+      "mappings": [
+        {"node_id": 137, "input_name": "image", "value_type": "filename"},
+        {"node_id": 162, "input_name": "image", "value_type": "filename"},
+        {"node_id": 164, "input_name": "image", "value_type": "filename"},
+        {"node_id": 163, "input_name": "image", "value_type": "filename"},
+        {"node_id": 168, "input_name": "image", "value_type": "filename"},
+        {"node_id": 167, "input_name": "image", "value_type": "filename"},
+        {"node_id": 166, "input_name": "image", "value_type": "filename"},
+        {"node_id": 165, "input_name": "image", "value_type": "filename"},
+        {"node_id": 169, "input_name": "image", "value_type": "filename"}
+      ],
+      "upload": {
+        "type": "image",
+        "comfyui_endpoint": "/upload/image",
+        "field_name": "image"
+      }
+    },
+    "video": {
+      "type": "file",
+      "required": false,
+      "mappings": [
+        {"node_id": 136, "input_name": "ref_videos.ref_video_0", "value_type": "filename"}
+      ],
+      "upload": {
+        "type": "video",
+        "comfyui_endpoint": "/upload/image",
+        "field_name": "video"
+      }
+    },
+    "prompt": {
+      "type": "string",
+      "required": true,
+      "default": "",
+      "mappings": [
+        {"node_id": 138, "input_name": "value", "value_type": "text"}
+      ]
+    },
+    "audio": {
+      "type": "file",
+      "required": true,
+      "mappings": [
+        {"node_id": 141, "input_name": "audio", "value_type": "filename"}
+      ],
+      "upload": {
+        "type": "audio",
+        "comfyui_endpoint": "/upload/image",
+        "field_name": "audio"
+      }
+    },
+    "duration": {
+      "type": "float",
+      "required": false,
+      "default": 10.0,
+      "mappings": [
+        {"node_id": 132, "input_name": "value", "value_type": "number"}
+      ]
+    },
+    "resolution": {
+      "type": "float",
+      "required": false,
+      "default": 1.0,
+      "mappings": [
+        {"node_id": 115, "input_name": "megapixels", "value_type": "number"}
+      ]
+    },
+    "aspect_ratio": {
+      "type": "string",
+      "required": false,
+      "default": "16:9 (Widescreen)",
+      "mappings": [
+        {"node_id": 115, "input_name": "aspect_ratio", "value_type": "text"}
+      ]
+    },
+    "aspect_ratio_custom": {
+      "type": "string",
+      "required": false,
+      "description": "自定义宽高比，支持: 1:1, 2:3, 3:4, 9:16, 16:9, 4:3, 3:2, 21:9",
+      "default": "16:9 (Widescreen)",
+      "mappings": [
+        {"node_id": 115, "input_name": "aspect_ratio", "value_type": "text"}
+      ]
+    }
+  },
+  "output": {
+    "node_id": 92,
+    "possible_fields": ["gifs", "images", "videos"],
+    "file_extensions": [".mp4", ".webm", ".mov"],
+    "comfyui_endpoint": "/view",
+    "type_field": "output"
+  },
+  "route": {
+    "path": "/MiniMax_H3/generate",
+    "methods": ["POST"]
+  }
+}

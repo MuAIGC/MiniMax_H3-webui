@@ -1,0 +1,22 @@
+[
+  {
+    "name": "职业女性1",
+    "filename": "sample_person1.jpg",
+    "description": "专业职业女性形象，适合商务、新闻类视频"
+  },
+  {
+    "name": "职业女性2",
+    "filename": "sample_person2.jpg",
+    "description": "优雅职业女性形象，适合教育、讲解类视频"
+  },
+  {
+    "name": "红衣女性",
+    "filename": "sample_person3.png",
+    "description": "时尚红衣女性形象，适合广告、展示类视频"
+  },
+  {
+    "name": "自然女性",
+    "filename": "sample_person4.jpg",
+    "description": "自然亲和女性形象，适合聊天、故事类视频"
+  }
+]
