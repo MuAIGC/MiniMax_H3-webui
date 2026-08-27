@@ -996,8 +996,39 @@ async def submit(req: GenerateRequest):
     try:
         result = await executor.submit_only(req.data)
         return result
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code=503,
+            detail="COMFYUI_NOT_AVAILABLE: ComfyUI 服务未启动，请等待 ComfyUI 启动后任务会自动提交"
+        )
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail="COMFYUI_TIMEOUT: ComfyUI 响应超时，可能正在启动中，请稍后重试"
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/health")
+async def health_check():
+    """检查 ComfyUI 是否可用"""
+    try:
+        resp = requests.get(f"{COMFYUI_URL}/system_stats", timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            return {
+                "comfyui": "ok",
+                "version": data.get("system", {}).get("comfyui_version", "unknown"),
+            }
+    except requests.exceptions.ConnectionError:
+        pass
+    except Exception:
+        pass
+    return JSONResponse(
+        status_code=503,
+        content={"comfyui": "unavailable", "message": "ComfyUI 服务未启动"}
+    )
 
 
 @app.get("/result/{task_id}")
