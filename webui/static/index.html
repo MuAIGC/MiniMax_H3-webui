@@ -1027,35 +1027,43 @@
             <form id="generateForm">
                 <!-- 工作流选择 -->
                 <div class="form-group">
-                    <label for="modelSelect">选择工作流模型</label>
-                    <select id="modelSelect" required>
-                        <option value="">加载中...</option>
-                    </select>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <label for="modelSelect" style="margin:0; white-space:nowrap;">选择工作流模型</label>
+                        <select id="modelSelect" required style="flex:1;">
+                            <option value="">加载中...</option>
+                        </select>
+                        <button type="button" onclick="resetUserConfig()" title="重置为初始配置（清空缓存，恢复预置素材）" style="padding:6px 14px; border:1px solid #ff9800; background:white; color:#ff9800; border-radius:4px; cursor:pointer; font-size:12px; white-space:nowrap;">🔄 重置配置</button>
+                    </div>
                 </div>
 
                 <!-- 参考图片 -->
                 <div class="form-group">
-                    <label>参考图片（最多 9 张，至少1张）</label>
+                    <label>参考图片（最多 9 张，至少1张）<span style="font-size:11px;color:#888;font-weight:normal;margin-left:8px;">点击空槽位选择素材</span></label>
 
                     <!-- 已选图片预览（始终显示） -->
                     <div id="selectedImagesPreview" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; background: #f8f9fa; border: 1px dashed #ccc; border-radius: 6px; min-height: 60px; align-items: center;">
                         <span style="color: #999; font-size: 12px;" id="noImagePlaceholder">尚未选择图片</span>
                     </div>
 
-                    <!-- 操作按钮 -->
-                    <div style="display: flex; gap: 8px; margin-top: 8px;">
-                        <button type="button" onclick="document.getElementById('imageInput').click()" style="padding: 6px 14px; border: 1px solid #667eea; background: white; color: #667eea; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;">📤 上传图片</button>
-                        <input type="file" id="imageInput" accept="image/*" multiple style="display: none;">
-                        <button type="button" onclick="toggleImageBrowser()" id="toggleImageBrowserBtn" style="padding: 6px 14px; border: 1px solid #667eea; background: white; color: #667eea; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;">📂 从服务器选择</button>
-                    </div>
-
-                    <!-- 服务器浏览器（默认隐藏） -->
-                    <div id="imageBrowserPanel" style="display: none; margin-top: 8px;">
-                        <div class="browser-toolbar">
-                            <button type="button" onclick="navigateUp()" id="upBtn" disabled>⬆️ 上级</button>
-                            <span class="path-display" id="currentPath">/</span>
+                    <!-- 槽位选择弹窗 -->
+                    <div id="imageSlotPicker" style="display:none; margin-top:10px; padding:12px; background:#fff; border:1px solid #667eea; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                            <span id="imageSlotPickerTitle" style="font-size:13px; color:#333; font-weight:500;"></span>
+                            <button type="button" onclick="closeImageSlotPicker()" style="border:none; background:none; font-size:18px; cursor:pointer; color:#999;">&times;</button>
                         </div>
-                        <div id="imageGrid" class="image-grid"></div>
+                        <div style="display:flex; gap:8px; margin-bottom:10px;">
+                            <button type="button" onclick="document.getElementById('imageInput').click()" style="flex:1; padding:10px; border:1px solid #667eea; background:white; color:#667eea; border-radius:6px; cursor:pointer; font-size:13px;">📤 上传文件</button>
+                            <button type="button" onclick="toggleImageBrowser()" style="flex:1; padding:10px; border:1px solid #667eea; background:white; color:#667eea; border-radius:6px; cursor:pointer; font-size:13px;">📂 服务器选择</button>
+                        </div>
+                        <input type="file" id="imageInput" accept="image/*" multiple style="display: none;">
+                        <!-- 服务器浏览器（默认隐藏） -->
+                        <div id="imageBrowserPanel" style="display: none; margin-top: 8px;">
+                            <div class="browser-toolbar">
+                                <button type="button" onclick="navigateUp()" id="upBtn" disabled>⬆️ 上级</button>
+                                <span class="path-display" id="currentPath">/</span>
+                            </div>
+                            <div id="imageGrid" class="image-grid"></div>
+                        </div>
                     </div>
 
                     <div class="file-list" id="imageList" style="display: none;"></div>
@@ -1063,61 +1071,65 @@
 
                 <!-- 参考音频 -->
                 <div class="form-group">
-                    <label>参考音频（最多 3 条，可选）</label>
+                    <label>参考音频（最多 3 条，可选）<span style="font-size:11px;color:#888;font-weight:normal;margin-left:8px;">点击空槽位选择素材</span></label>
 
                     <!-- 已选音频预览（始终显示3个槽位） -->
                     <div id="selectedAudioPreview" style="padding: 8px; background: #f8f9fa; border: 1px dashed #ccc; border-radius: 6px; min-height: 40px; display: flex; gap: 8px; flex-wrap: wrap;"></div>
 
-                    <div id="selectedAudioInfo" style="margin-top: 0; padding: 8px; background: #f5f5f5; border-radius: 4px; display: none;">
-                        <span class="resource-label" id="audioResourceLabel"></span>
-                        <span id="selectedAudioName"></span>
-                        <audio id="audioPreview" controls style="display: block; margin-top: 5px; width: 100%;"></audio>
-                    </div>
-
-                    <!-- 操作按钮 -->
-                    <div style="display: flex; gap: 8px; margin-top: 8px;">
-                        <button type="button" onclick="document.getElementById('audioInput').click()" style="padding: 6px 14px; border: 1px solid #667eea; background: white; color: #667eea; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;">📤 上传音频</button>
-                        <input type="file" id="audioInput" accept="audio/*" style="display: none;">
-                        <button type="button" onclick="toggleAudioBrowser()" id="toggleAudioBrowserBtn" style="padding: 6px 14px; border: 1px solid #667eea; background: white; color: #667eea; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;">📂 从服务器选择</button>
-                    </div>
-
-                    <!-- 服务器浏览器（默认隐藏） -->
-                    <div id="audioBrowserPanel" style="display: none; margin-top: 8px;">
-                        <div class="browser-toolbar">
-                            <button type="button" onclick="navigateAudioUp()" id="audioUpBtn" disabled>⬆️ 上级</button>
-                            <span class="path-display" id="audioCurrentPath">/</span>
+                    <!-- 槽位选择弹窗 -->
+                    <div id="audioSlotPicker" style="display:none; margin-top:10px; padding:12px; background:#fff; border:1px solid #667eea; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                            <span id="audioSlotPickerTitle" style="font-size:13px; color:#333; font-weight:500;"></span>
+                            <button type="button" onclick="closeAudioSlotPicker()" style="border:none; background:none; font-size:18px; cursor:pointer; color:#999;">&times;</button>
                         </div>
-                        <div id="audioBrowserList" class="audio-list"></div>
+                        <div style="display:flex; gap:8px; margin-bottom:10px;">
+                            <button type="button" onclick="document.getElementById('audioInput').click()" style="flex:1; padding:10px; border:1px solid #667eea; background:white; color:#667eea; border-radius:6px; cursor:pointer; font-size:13px;">📤 上传文件</button>
+                            <button type="button" onclick="toggleAudioBrowser()" style="flex:1; padding:10px; border:1px solid #667eea; background:white; color:#667eea; border-radius:6px; cursor:pointer; font-size:13px;">📂 服务器选择</button>
+                        </div>
+                        <input type="file" id="audioInput" accept="audio/*" style="display: none;">
+                        <!-- 服务器浏览器（默认隐藏） -->
+                        <div id="audioBrowserPanel" style="display: none; margin-top: 8px;">
+                            <div class="browser-toolbar">
+                                <button type="button" onclick="navigateAudioUp()" id="audioUpBtn" disabled>⬆️ 上级</button>
+                                <span class="path-display" id="audioCurrentPath">/</span>
+                            </div>
+                            <div id="audioBrowserList" class="audio-list"></div>
+                        </div>
                     </div>
                 </div>
 
                 <!-- 参考视频 -->
                 <div class="form-group">
-                    <label>参考视频（最多 3 条，可选）</label>
+                    <label>参考视频（最多 3 条，可选）<span style="font-size:11px;color:#888;font-weight:normal;margin-left:8px;">点击空槽位选择素材</span></label>
 
                     <!-- 已选视频预览（始终显示3个槽位） -->
                     <div id="selectedVideoPreview" style="padding: 8px; background: #f8f9fa; border: 1px dashed #ccc; border-radius: 6px; min-height: 40px; display: flex; gap: 8px; flex-wrap: wrap;"></div>
+
+                    <!-- 槽位选择弹窗 -->
+                    <div id="videoSlotPicker" style="display:none; margin-top:10px; padding:12px; background:#fff; border:1px solid #667eea; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                            <span id="videoSlotPickerTitle" style="font-size:13px; color:#333; font-weight:500;"></span>
+                            <button type="button" onclick="closeVideoSlotPicker()" style="border:none; background:none; font-size:18px; cursor:pointer; color:#999;">&times;</button>
+                        </div>
+                        <div style="display:flex; gap:8px; margin-bottom:10px;">
+                            <button type="button" onclick="document.getElementById('videoInput').click()" style="flex:1; padding:10px; border:1px solid #667eea; background:white; color:#667eea; border-radius:6px; cursor:pointer; font-size:13px;">📤 上传文件</button>
+                            <button type="button" onclick="toggleVideoBrowser()" style="flex:1; padding:10px; border:1px solid #667eea; background:white; color:#667eea; border-radius:6px; cursor:pointer; font-size:13px;">📂 服务器选择</button>
+                        </div>
+                        <input type="file" id="videoInput" accept="video/*" style="display: none;">
+                        <!-- 服务器浏览器（默认隐藏） -->
+                        <div id="videoBrowserPanel" style="display: none; margin-top: 8px;">
+                            <div class="browser-toolbar">
+                                <button type="button" onclick="navigateVideoUp()" id="videoUpBtn" disabled>⬆️ 上级</button>
+                                <span class="path-display" id="videoCurrentPath">/</span>
+                            </div>
+                            <div id="videoBrowserList" class="video-list"></div>
+                        </div>
+                    </div>
 
                     <div id="selectedVideoInfo" style="margin-top: 0; padding: 8px; background: #f5f5f5; border-radius: 4px; display: none;">
                         <span class="resource-label" id="videoResourceLabel"></span>
                         <span id="selectedVideoName"></span>
                         <video id="videoPreview" controls style="display: block; margin-top: 5px; width: 100%; max-height: 200px;"></video>
-                    </div>
-
-                    <!-- 操作按钮 -->
-                    <div style="display: flex; gap: 8px; margin-top: 8px;">
-                        <button type="button" onclick="document.getElementById('videoInput').click()" style="padding: 6px 14px; border: 1px solid #667eea; background: white; color: #667eea; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;">📤 上传视频</button>
-                        <input type="file" id="videoInput" accept="video/*" style="display: none;">
-                        <button type="button" onclick="toggleVideoBrowser()" id="toggleVideoBrowserBtn" style="padding: 6px 14px; border: 1px solid #667eea; background: white; color: #667eea; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;">📂 从服务器选择</button>
-                    </div>
-
-                    <!-- 服务器浏览器（默认隐藏） -->
-                    <div id="videoBrowserPanel" style="display: none; margin-top: 8px;">
-                        <div class="browser-toolbar">
-                            <button type="button" onclick="navigateVideoUp()" id="videoUpBtn" disabled>⬆️ 上级</button>
-                            <span class="path-display" id="videoCurrentPath">/</span>
-                        </div>
-                        <div id="videoBrowserList" class="video-list"></div>
                     </div>
                 </div>
 
@@ -1139,7 +1151,7 @@
                     <div class="params-grid">
                         <div>
                             <label for="durationInput" style="font-size: 12px; color: #666;">视频时长（秒）</label>
-                            <input type="number" id="durationInput" value="5" min="1" max="15" step="0.5">
+                            <input type="number" id="durationInput" value="5" min="1" max="15" step="1">
                         </div>
                         <div>
                             <label for="resolutionInput" style="font-size: 12px; color: #666;">分辨率质量</label>
@@ -1188,22 +1200,23 @@
                 <button type="submit" class="submit-btn" id="submitBtn">
                     🚀 生成视频
                 </button>
-                <div id="submitStatusText" style="text-align:center;font-size:13px;color:#2196f3;margin-top:6px;min-height:20px;"></div>
+
+                <!-- 状态显示（提交按钮下方、任务队列上方） -->
+                <div class="status" id="statusBox"></div>
 
                 <!-- 任务列表 -->
                 <div id="taskListSection" style="margin-top: 30px;">
                     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
                         <h3 style="margin: 0; color: #333;">📋 任务队列</h3>
-                        <button type="button" onclick="syncFromComfyUI()" id="syncTaskBtn" style="margin-left: auto; padding: 4px 10px; border: 1px solid #2196f3; background: white; color: #2196f3; border-radius: 4px; cursor: pointer; font-size: 11px;" title="从 ComfyUI 同步任务队列">🔄 同步</button>
-                        <button type="button" onclick="clearCompletedTasks()" style="padding: 4px 10px; border: 1px solid #ddd; background: white; color: #666; border-radius: 4px; cursor: pointer; font-size: 11px;">🗑️ 清除已完成</button>
+                        <button type="button" onclick="clearCompletedTasks()" style="margin-left: auto; padding: 4px 10px; border: 1px solid #ddd; background: white; color: #666; border-radius: 4px; cursor: pointer; font-size: 11px;">🗑️ 清除已完成</button>
                     </div>
                     <div id="taskCounter" style="font-size: 12px; color: #666; padding: 6px 12px; background: #f0f4ff; border-radius: 4px; margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 6px 14px;">暂无任务</div>
                     <div id="taskList" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; max-height: 400px; overflow-y: auto;"></div>
                 </div>
 
-                <!-- 历史记录 -->
+                <!-- 文件管理 -->
                 <div id="historySection" style="margin-top: 30px;">
-                    <h3 style="margin-bottom: 15px; color: #333;">📂 历史生成记录</h3>
+                    <h3 style="margin-bottom: 15px; color: #333;">📁 文件管理</h3>
                     <div class="browser-toolbar">
                         <button type="button" onclick="navigateHistoryUp()" id="historyUpBtn" disabled>⬆️ 上级目录</button>
                         <span class="path-display" id="historyCurrentPath">/</span>
@@ -1213,16 +1226,6 @@
                     <button type="button" id="historyLoadMore" class="load-more-btn" style="display: none;" onclick="loadHistory(true)">加载更多...</button>
                 </div>
 
-                <!-- 状态显示 -->
-                <div class="status" id="statusBox"></div>
-
-                <!-- 结果展示 -->
-                <div class="result" id="resultBox">
-                    <video id="videoPlayer" controls></video>
-                    <a href="#" id="downloadBtn" class="download-btn" download>
-                        💾 下载视频
-                    </a>
-                </div>
             </form>
 
             <div class="admin-link">
@@ -1238,6 +1241,33 @@
         const MAX_IMAGE_SLOTS = 9;
         let uploadedAudio = new Array(3).fill(null);   // 固定3个槽位
         const MAX_AUDIO_SLOTS = 3;
+
+        // 当前正在选择的槽位（点击空槽位时设置）
+        let activeImageSlot = -1;   // -1 表示没有激活
+        let activeAudioSlot = -1;
+        let activeVideoSlot = -1;
+
+        // 音频裁剪参数（每个槽位独立），单位：秒
+        let audioTrim = [
+            { start: 0, end: 3 },
+            { start: 0, end: 3 },
+            { start: 0, end: 3 }
+        ];
+
+        // 秒数 → M:SS 格式
+        function formatTimeMMSS(seconds) {
+            const m = Math.floor(seconds / 60);
+            const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+            return `${m}:${s}`;
+        }
+        // M:SS 格式 → 秒数
+        function parseTimeMMSS(str) {
+            const parts = str.split(':');
+            if (parts.length === 2) {
+                return parseInt(parts[0]) * 60 + parseFloat(parts[1]);
+            }
+            return parseFloat(str) || 0;
+        }
         let uploadedVideo = new Array(3).fill(null);   // 固定3个槽位
         const MAX_VIDEO_SLOTS = 3;
 
@@ -1284,36 +1314,45 @@
                         const thumbUrl = `/api/browser/image-thumbnail/${encodeURIComponent(item.path)}?size=200`;
                         div.innerHTML = `<img src="${thumbUrl}" alt="${escapeHtml(item.name)}" loading="lazy"><div class="item-name">${escapeHtml(item.name)}</div>`;
                         div.onclick = () => {
-                            // 检查是否已选
-                            if (uploadedImages.some(img => img && img.type === 'server' && img.path === item.path)) {
+                            // 检查是否已选（同一个 slot 不算重复）
+                            const slotIdx = activeImageSlot >= 0 ? activeImageSlot : uploadedImages.findIndex(img => img === null);
+                            if (slotIdx === -1 || uploadedImages[slotIdx] !== null && uploadedImages[slotIdx].type === 'server' && uploadedImages[slotIdx].path === item.path) {
+                                // 已在该槽位选中相同文件，忽略
+                                if (slotIdx === -1) {
+                                    alert('所有9个图片槽位都已使用');
+                                }
                                 return;
                             }
-                            // 找到第一个空槽位
-                            const emptySlot = uploadedImages.findIndex(img => img === null);
-                            if (emptySlot === -1) {
+                            let targetSlot = activeImageSlot >= 0 ? activeImageSlot : uploadedImages.findIndex(img => img === null);
+                            if (targetSlot === -1 || uploadedImages[targetSlot] !== null) {
+                                targetSlot = uploadedImages.findIndex(img => img === null);
+                            }
+                            if (targetSlot === -1) {
                                 alert('所有9个图片槽位都已使用');
                                 return;
                             }
-                            uploadedImages[emptySlot] = {
+                            uploadedImages[targetSlot] = {
                                 type: 'server',
                                 filename: item.name,
                                 path: item.path,
                                 preview: thumbUrl,
                                 base64: null  // 将在后台缓存
                             };
+                            const filledSlot = targetSlot;
                             // 立即获取并缓存 base64，避免提交时等待
                             fetch(`/api/browser/file-base64?path=${encodeURIComponent(item.path)}`)
                                 .then(r => r.ok ? r.json() : Promise.reject())
                                 .then(data => {
-                                    if (uploadedImages[emptySlot] && uploadedImages[emptySlot].path === item.path) {
-                                        uploadedImages[emptySlot].base64 = data.base64;
+                                    if (uploadedImages[filledSlot] && uploadedImages[filledSlot].path === item.path) {
+                                        uploadedImages[filledSlot].base64 = data.base64;
                                     }
                                 })
                                 .catch(() => {});  // 失败时提交时再重试
                             div.classList.add('selected');
                             updateImageList();
-                            showStatus(`✅ 已选择图片到 <Picture ${emptySlot + 1}>: ${item.name}`, 'success');
+                            showStatus(`✅ 已选择图片到 <Picture ${filledSlot + 1}>: ${item.name}`, 'success');
                             saveConfigToStorage();
+                            closeImageSlotPicker();
                         };
                     }
 
@@ -1397,37 +1436,37 @@
                             list.querySelectorAll('.audio-item.selected').forEach(el => el.classList.remove('selected'));
                             div.classList.add('selected');
 
-                            const emptySlot = uploadedAudio.findIndex(a => a === null);
-                            if (emptySlot === -1) {
+                            let targetSlot = activeAudioSlot >= 0 ? activeAudioSlot : uploadedAudio.findIndex(a => a === null);
+                            if (targetSlot === -1 || uploadedAudio[targetSlot] !== null) {
+                                targetSlot = uploadedAudio.findIndex(a => a === null);
+                            }
+                            if (targetSlot === -1) {
                                 alert('所有3个音频槽位都已使用');
                                 return;
                             }
 
-                            uploadedAudio[emptySlot] = {
+                            uploadedAudio[targetSlot] = {
                                 type: 'server',
                                 filename: item.name,
                                 path: item.path,
                                 base64: null
                             };
+                            const filledSlot = targetSlot;
                             // 立即缓存 base64
                             fetch(`/api/browser/file-base64?path=${encodeURIComponent(item.path)}`)
                                 .then(r => r.ok ? r.json() : Promise.reject())
                                 .then(data => {
-                                    if (uploadedAudio[emptySlot] && uploadedAudio[emptySlot].path === item.path) {
-                                        uploadedAudio[emptySlot].base64 = data.base64;
+                                    if (uploadedAudio[filledSlot] && uploadedAudio[filledSlot].path === item.path) {
+                                        uploadedAudio[filledSlot].base64 = data.base64;
                                     }
                                 })
                                 .catch(() => {});
 
-                            const infoDiv = document.getElementById('selectedAudioInfo');
-                            infoDiv.style.display = 'block';
-                            document.getElementById('audioResourceLabel').textContent = `<Audio ${emptySlot + 1}>`;
-                            document.getElementById('selectedAudioName').textContent = `已选择: ${item.name}`;
-                            document.getElementById('audioPreview').src = `/api/browser/file?path=${encodeURIComponent(item.path)}`;
                             updateAudioPreview();
 
-                            showStatus(`✅ 已选择音频到 <Audio ${emptySlot + 1}>: ${item.name}`, 'success');
+                            showStatus(`✅ 已选择音频到 <Audio ${filledSlot + 1}>: ${item.name}`, 'success');
                             saveConfigToStorage();
+                            closeAudioSlotPicker();
                         };
                     }
 
@@ -1513,37 +1552,42 @@
                             list.querySelectorAll('.video-item.selected').forEach(el => el.classList.remove('selected'));
                             div.classList.add('selected');
 
-                            const emptySlot = uploadedVideo.findIndex(v => v === null);
-                            if (emptySlot === -1) {
+                            let targetSlot = activeVideoSlot >= 0 ? activeVideoSlot : uploadedVideo.findIndex(v => v === null);
+                            if (targetSlot === -1 || uploadedVideo[targetSlot] !== null) {
+                                targetSlot = uploadedVideo.findIndex(v => v === null);
+                            }
+                            if (targetSlot === -1) {
                                 alert('所有3个视频槽位都已使用');
                                 return;
                             }
 
-                            uploadedVideo[emptySlot] = {
+                            uploadedVideo[targetSlot] = {
                                 type: 'server',
                                 filename: item.name,
                                 path: item.path,
                                 base64: null
                             };
+                            const filledSlot = targetSlot;
                             // 立即缓存 base64
                             fetch(`/api/browser/file-base64?path=${encodeURIComponent(item.path)}`)
                                 .then(r => r.ok ? r.json() : Promise.reject())
                                 .then(data => {
-                                    if (uploadedVideo[emptySlot] && uploadedVideo[emptySlot].path === item.path) {
-                                        uploadedVideo[emptySlot].base64 = data.base64;
+                                    if (uploadedVideo[filledSlot] && uploadedVideo[filledSlot].path === item.path) {
+                                        uploadedVideo[filledSlot].base64 = data.base64;
                                     }
                                 })
                                 .catch(() => {});
 
                             const infoDiv = document.getElementById('selectedVideoInfo');
                             infoDiv.style.display = 'block';
-                            document.getElementById('videoResourceLabel').textContent = `<Video ${emptySlot + 1}>`;
+                            document.getElementById('videoResourceLabel').textContent = `<Video ${filledSlot + 1}>`;
                             document.getElementById('selectedVideoName').textContent = `已选择: ${item.name}`;
                             document.getElementById('videoPreview').src = `/api/browser/file?path=${encodeURIComponent(item.path)}`;
                             updateVideoPreview();
 
-                            showStatus(`✅ 已选择视频到 <Video ${emptySlot + 1}>: ${item.name}`, 'success');
+                            showStatus(`✅ 已选择视频到 <Video ${filledSlot + 1}>: ${item.name}`, 'success');
                             saveConfigToStorage();
+                            closeVideoSlotPicker();
                         };
                     }
 
@@ -1615,7 +1659,7 @@
 
         function saveConfigToStorage() {
             try {
-                // 只保存路径信息，不保存 base64 数据（避免超出 5MB 限制）
+                // 保存路径信息 + 预置文件标识，不保存 base64（避免超出 5MB 限制）
                 const config = {
                     model: document.getElementById('modelSelect').value,
                     prompt: document.getElementById('promptInput').value,
@@ -1623,13 +1667,20 @@
                     resolution: document.getElementById('resolutionInput').value,
                     aspectRatio: document.getElementById('aspectRatioInput').value,
                     filenamePrefix: document.getElementById('filenamePrefixInput').value,
-                    // 只保存服务器文件的路径，不保存上传的 base64，保留槽位结构
-                    serverImages: uploadedImages.map(img =>
-                        img && img.type === 'server' ? { type: 'server', filename: img.filename, path: img.path } : null
-                    ),
-                    serverAudio: uploadedAudio.map(a =>
-                        a && a.type === 'server' ? { type: 'server', filename: a.filename, path: a.path } : null
-                    ),
+                    // 保存服务器文件和预置文件（不含 base64），保留槽位结构
+                    serverImages: uploadedImages.map(img => {
+                        if (!img) return null;
+                        if (img.type === 'server') return { type: 'server', filename: img.filename, path: img.path };
+                        if (img.type === 'upload' && img.filename) return { type: 'preset', filename: img.filename };
+                        return null;
+                    }),
+                    serverAudio: uploadedAudio.map(a => {
+                        if (!a) return null;
+                        if (a.type === 'server') return { type: 'server', filename: a.filename, path: a.path };
+                        if (a.type === 'upload' && a.filename) return { type: 'preset', filename: a.filename, mime_type: a.mime_type };
+                        return null;
+                    }),
+                    audioTrim: audioTrim,
                     serverVideo: uploadedVideo.map(v =>
                         v && v.type === 'server' ? { type: 'server', filename: v.filename, path: v.path } : null
                     )
@@ -1640,10 +1691,14 @@
             }
         }
 
+        // 标记：是否存在已保存的配置（用于决定是否自动填充预置）
+        let hasSavedConfig = false;
+
         function loadConfigFromStorage() {
             try {
                 const saved = localStorage.getItem(CONFIG_STORAGE_KEY);
                 if (!saved) return;
+                hasSavedConfig = true;
 
                 const config = JSON.parse(saved);
 
@@ -1657,27 +1712,65 @@
                 if (config.aspectRatio) document.getElementById('aspectRatioInput').value = config.aspectRatio;
                 if (config.filenamePrefix) document.getElementById('filenamePrefixInput').value = config.filenamePrefix;
 
-                // 恢复服务器文件引用（保留槽位结构）
+                // 恢复服务器文件 + 预置文件引用（保留槽位结构）
                 if (config.serverImages && Array.isArray(config.serverImages)) {
                     uploadedImages = config.serverImages.map(img => {
-                        if (img && img.type === 'server' && img.path) {
+                        if (!img) return null;
+                        if (img.type === 'server' && img.path) {
                             return {
                                 ...img,
                                 preview: `/api/browser/image-thumbnail/${encodeURIComponent(img.path)}?size=200`
                             };
                         }
+                        if (img.type === 'preset' && img.filename) {
+                            // 预置图：重新获取 base64
+                            const presetImg = {
+                                type: 'upload',
+                                filename: img.filename,
+                                base64: null,
+                                preview: `/static/presets/images/${img.filename}`
+                            };
+                            fetch(`/api/presets/image/${encodeURIComponent(img.filename)}`)
+                                .then(r => r.ok ? r.json() : null)
+                                .then(data => { if (data) presetImg.base64 = data.base64; })
+                                .catch(() => {});
+                            return presetImg;
+                        }
                         return null;
                     });
-                    // 确保数组长度为9
                     while (uploadedImages.length < 9) uploadedImages.push(null);
                     updateImageList();
                 }
                 if (config.serverAudio && Array.isArray(config.serverAudio)) {
                     uploadedAudio = config.serverAudio.map(a => {
-                        if (a && a.type === 'server' && a.path) return a;
+                        if (!a) return null;
+                        if (a.type === 'server' && a.path) return a;
+                        if (a.type === 'preset' && a.filename) {
+                            const presetAudio = {
+                                type: 'upload',
+                                filename: a.filename,
+                                base64: null,
+                                mime_type: a.mime_type || 'audio/wav'
+                            };
+                            fetch(`/api/presets/audio/${encodeURIComponent(a.filename)}`)
+                                .then(r => r.ok ? r.json() : null)
+                                .then(data => { if (data) presetAudio.base64 = data.base64; })
+                                .catch(() => {});
+                            return presetAudio;
+                        }
                         return null;
                     });
                     while (uploadedAudio.length < 3) uploadedAudio.push(null);
+                    updateAudioPreview();
+                }
+                // 恢复音频裁剪参数
+                if (config.audioTrim && Array.isArray(config.audioTrim)) {
+                    for (let i = 0; i < Math.min(config.audioTrim.length, 3); i++) {
+                        const t = config.audioTrim[i];
+                        if (t && typeof t.start === 'number' && typeof t.end === 'number') {
+                            audioTrim[i] = { start: t.start, end: t.end };
+                        }
+                    }
                     updateAudioPreview();
                 }
                 if (config.serverVideo && Array.isArray(config.serverVideo)) {
@@ -1705,6 +1798,16 @@
                     field._saveTimeout = setTimeout(saveConfigToStorage, 500);
                 });
             });
+        }
+
+        function resetUserConfig() {
+            if (!confirm('确定要重置所有配置吗？\n将清空已选图片/音频/提示词/参数，恢复为初始预置素材。')) return;
+            try {
+                localStorage.removeItem(CONFIG_STORAGE_KEY);
+                localStorage.removeItem(TASK_STORAGE_KEY);
+            } catch (e) {}
+            // 重新加载页面以恢复初始状态
+            location.reload();
         }
 
         // ========== 版本信息 ==========
@@ -1779,8 +1882,104 @@
 
                     container.appendChild(button);
                 });
+
+                // 如果提示词框为空，默认选中第一个模板
+                if (data.prompts && data.prompts.length > 0) {
+                    const currentPrompt = document.getElementById('promptInput').value.trim();
+                    if (!currentPrompt) {
+                        const firstBtn = container.querySelector('.preset-btn');
+                        if (firstBtn) firstBtn.click();
+                    } else {
+                        // 恢复配置时高亮匹配的提示词按钮
+                        data.prompts.forEach((p, i) => {
+                            if (p.prompt === currentPrompt) {
+                                const btns = container.querySelectorAll('.preset-btn');
+                                if (btns[i]) btns[i].classList.add('active');
+                            }
+                        });
+                    }
+                }
             } catch (error) {
                 console.error('加载提示词模板失败:', error);
+            }
+        }
+
+        // ========== 预置参考图 ==========
+
+        async function loadImagePresets() {
+            // 如果 <Picture 1> 已有内容（从保存的配置恢复），跳过
+            if (uploadedImages[0]) return;
+            try {
+                const response = await fetch('/api/presets/images');
+                const data = await response.json();
+                if (!data.images || data.images.length === 0) return;
+                const first = data.images[0];
+                const r = await fetch(`/api/presets/image/${encodeURIComponent(first.filename)}`);
+                if (r.ok) {
+                    const fileData = await r.json();
+                    uploadedImages[0] = {
+                        type: 'upload',
+                        filename: first.filename,
+                        base64: fileData.base64,
+                        preview: `/static/presets/images/${first.filename}`
+                    };
+                    updateImageList();
+                }
+            } catch (e) {
+                console.error('预置图加载失败:', e);
+            }
+        }
+
+        // ========== 预置参考音频 ==========
+
+        async function loadAudioPresets() {
+            // 如果 <Audio 1> 已有内容（从保存的配置恢复），跳过
+            if (uploadedAudio[0]) return;
+            try {
+                const response = await fetch('/api/presets/audios');
+                const data = await response.json();
+                if (!data.audios || data.audios.length === 0) return;
+                const first = data.audios[0];
+                const r = await fetch(`/api/presets/audio/${encodeURIComponent(first.filename)}`);
+                if (r.ok) {
+                    const fileData = await r.json();
+                    const mimeMap = {'.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.flac': 'audio/flac'};
+                    const ext = first.filename.substring(first.filename.lastIndexOf('.'));
+                    uploadedAudio[0] = {
+                        type: 'upload',
+                        filename: first.filename,
+                        base64: fileData.base64,
+                        mime_type: mimeMap[ext] || 'audio/wav'
+                    };
+                    updateAudioPreview();
+                }
+            } catch (e) {
+                console.error('预置音频加载失败:', e);
+            }
+        }
+
+        // ========== 预置参考视频 ==========
+
+        async function loadVideoPresets() {
+            // 如果 <Video 1> 已有内容（从保存的配置恢复），跳过
+            if (uploadedVideo[0]) return;
+            try {
+                const response = await fetch('/api/presets/videos');
+                const data = await response.json();
+                if (!data.videos || data.videos.length === 0) return;
+                const first = data.videos[0];
+                const r = await fetch(`/api/presets/video/${encodeURIComponent(first.filename)}`);
+                if (r.ok) {
+                    const fileData = await r.json();
+                    uploadedVideo[0] = {
+                        type: 'upload',
+                        filename: first.filename,
+                        base64: fileData.base64
+                    };
+                    updateVideoPreview();
+                }
+            } catch (e) {
+                console.error('预置视频加载失败:', e);
             }
         }
 
@@ -1796,23 +1995,29 @@
             const files = Array.from(e.target.files);
 
             for (const file of files) {
-                const emptySlot = uploadedImages.findIndex(img => img === null);
-                if (emptySlot === -1) {
+                // 使用点击的槽位，否则找第一个空槽位
+                let targetSlot = activeImageSlot >= 0 ? activeImageSlot : uploadedImages.findIndex(img => img === null);
+                if (targetSlot === -1 || uploadedImages[targetSlot] !== null) {
+                    targetSlot = uploadedImages.findIndex(img => img === null);
+                }
+                if (targetSlot === -1) {
                     showStatus('所有9个图片槽位都已使用', 'error');
                     break;
                 }
 
+                const slotToFill = targetSlot;
                 const reader = new FileReader();
                 reader.onload = (event) => {
-                    uploadedImages[emptySlot] = {
+                    uploadedImages[slotToFill] = {
                         type: 'upload',
                         filename: file.name,
                         base64: event.target.result.split(',')[1],
                         preview: event.target.result
                     };
                     updateImageList();
-                    showStatus(`✅ 已上传图片到 <Picture ${emptySlot + 1}>: ${file.name}`, 'success');
+                    showStatus(`✅ 已上传图片到 <Picture ${slotToFill + 1}>: ${file.name}`, 'success');
                     saveConfigToStorage();
+                    closeImageSlotPicker();
                 };
                 reader.readAsDataURL(file);
             }
@@ -1822,54 +2027,78 @@
 
         // ========== 浏览器面板切换 ==========
 
+        // ========== 槽位选择弹窗 ==========
+
+        function openImageSlotPicker(slotIndex) {
+            activeImageSlot = slotIndex;
+            const picker = document.getElementById('imageSlotPicker');
+            document.getElementById('imageSlotPickerTitle').textContent = `选择 <Picture ${slotIndex + 1}> 的参考素材`;
+            picker.style.display = 'block';
+            // 收起服务器浏览器
+            document.getElementById('imageBrowserPanel').style.display = 'none';
+        }
+
+        function closeImageSlotPicker() {
+            activeImageSlot = -1;
+            document.getElementById('imageSlotPicker').style.display = 'none';
+            document.getElementById('imageBrowserPanel').style.display = 'none';
+        }
+
+        function openAudioSlotPicker(slotIndex) {
+            activeAudioSlot = slotIndex;
+            const picker = document.getElementById('audioSlotPicker');
+            document.getElementById('audioSlotPickerTitle').textContent = `选择 <Audio ${slotIndex + 1}> 的参考素材`;
+            picker.style.display = 'block';
+            document.getElementById('audioBrowserPanel').style.display = 'none';
+        }
+
+        function closeAudioSlotPicker() {
+            activeAudioSlot = -1;
+            document.getElementById('audioSlotPicker').style.display = 'none';
+            document.getElementById('audioBrowserPanel').style.display = 'none';
+        }
+
+        function openVideoSlotPicker(slotIndex) {
+            activeVideoSlot = slotIndex;
+            const picker = document.getElementById('videoSlotPicker');
+            document.getElementById('videoSlotPickerTitle').textContent = `选择 <Video ${slotIndex + 1}> 的参考素材`;
+            picker.style.display = 'block';
+            document.getElementById('videoBrowserPanel').style.display = 'none';
+        }
+
+        function closeVideoSlotPicker() {
+            activeVideoSlot = -1;
+            document.getElementById('videoSlotPicker').style.display = 'none';
+            document.getElementById('videoBrowserPanel').style.display = 'none';
+        }
+
         function toggleImageBrowser() {
             const panel = document.getElementById('imageBrowserPanel');
-            const btn = document.getElementById('toggleImageBrowserBtn');
             if (panel.style.display === 'none') {
                 panel.style.display = 'block';
-                btn.textContent = '📂 收起服务器选择';
-                btn.style.background = '#667eea';
-                btn.style.color = 'white';
                 loadImageBrowser();
             } else {
                 panel.style.display = 'none';
-                btn.textContent = '📂 从服务器选择';
-                btn.style.background = 'white';
-                btn.style.color = '#667eea';
             }
         }
 
         function toggleAudioBrowser() {
             const panel = document.getElementById('audioBrowserPanel');
-            const btn = document.getElementById('toggleAudioBrowserBtn');
             if (panel.style.display === 'none') {
                 panel.style.display = 'block';
-                btn.textContent = '📂 收起服务器选择';
-                btn.style.background = '#667eea';
-                btn.style.color = 'white';
                 loadAudioBrowser();
             } else {
                 panel.style.display = 'none';
-                btn.textContent = '📂 从服务器选择';
-                btn.style.background = 'white';
-                btn.style.color = '#667eea';
             }
         }
 
         function toggleVideoBrowser() {
             const panel = document.getElementById('videoBrowserPanel');
-            const btn = document.getElementById('toggleVideoBrowserBtn');
             if (panel.style.display === 'none') {
                 panel.style.display = 'block';
-                btn.textContent = '📂 收起服务器选择';
-                btn.style.background = '#667eea';
-                btn.style.color = 'white';
                 loadVideoBrowser();
             } else {
                 panel.style.display = 'none';
-                btn.textContent = '📂 从服务器选择';
-                btn.style.background = 'white';
-                btn.style.color = '#667eea';
             }
         }
 
@@ -1901,11 +2130,14 @@
                         <button type="button" onclick="event.stopPropagation(); removeImage(${i})" style="position: absolute; top: -2px; right: -2px; width: 18px; height: 18px; border-radius: 50%; border: none; background: #f44336; color: white; font-size: 14px; cursor: pointer; line-height: 1; display: flex; align-items: center; justify-content: center;">&times;</button>
                     `;
                 } else {
-                    // 空槽位
-                    thumb.style.cssText = 'position: relative; width: 60px; height: 60px; border-radius: 4px; overflow: hidden; border: 2px dashed #ccc; background: #f9f9f9; display: flex; align-items: center; justify-content: center;';
+                    // 空槽位 - 点击打开选择弹窗
+                    thumb.style.cssText = 'position: relative; width: 60px; height: 60px; border-radius: 4px; overflow: hidden; border: 2px dashed #ccc; background: #f9f9f9; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s;';
                     thumb.innerHTML = `
-                        <div style="text-align: center; color: #999; font-size: 9px;">&lt;Picture ${i + 1}&gt;<br><span style="font-size: 16px;">+</span></div>
+                        <div style="text-align: center; color: #999; font-size: 9px; pointer-events: none;">&lt;Picture ${i + 1}&gt;<br><span style="font-size: 16px;">+</span></div>
                     `;
+                    thumb.onmouseenter = () => { thumb.style.borderColor = '#667eea'; thumb.style.background = '#f0f3ff'; };
+                    thumb.onmouseleave = () => { thumb.style.borderColor = '#ccc'; thumb.style.background = '#f9f9f9'; };
+                    thumb.onclick = () => openImageSlotPicker(i);
                 }
                 previewDiv.appendChild(thumb);
             }
@@ -1913,7 +2145,6 @@
 
         function updateAudioPreview() {
             const previewDiv = document.getElementById('selectedAudioPreview');
-            const infoDiv = document.getElementById('selectedAudioInfo');
             if (!previewDiv) return;
 
             // 清空预览区
@@ -1932,25 +2163,30 @@
                     thumb.onclick = (e) => {
                         if (e.target.tagName !== 'BUTTON') previewAudio(i);
                     };
+                    const trim = audioTrim[i] || { start: 0, end: 3 };
+                    const trimLabel = `${formatTimeMMSS(trim.start)}-${formatTimeMMSS(trim.end)}`;
                     thumb.innerHTML = `
                         <div style="text-align: center; font-size: 24px; pointer-events: none;">🎵</div>
-                        <div style="position: absolute; bottom: 0; left: 0; right: 0; background: rgba(102,126,234,0.85); color: white; font-size: 9px; text-align: center; padding: 1px 0; pointer-events: none;">&lt;Audio ${i + 1}&gt;</div>
+                        <div style="position: absolute; bottom: 0; left: 0; right: 0; background: rgba(102,126,234,0.85); color: white; font-size: 8px; text-align: center; padding: 1px 0; pointer-events: none; line-height:1.2;">&lt;Audio ${i + 1}&gt;<br>${trimLabel}</div>
                         <button type="button" onclick="event.stopPropagation(); removeAudio(${i})" style="position: absolute; top: -2px; right: -2px; width: 18px; height: 18px; border-radius: 50%; border: none; background: #f44336; color: white; font-size: 14px; cursor: pointer; line-height: 1; display: flex; align-items: center; justify-content: center;">&times;</button>
                     `;
                 } else {
-                    // 空槽位
-                    thumb.style.cssText = 'position: relative; width: 60px; height: 60px; border-radius: 4px; overflow: hidden; border: 2px dashed #ccc; background: #f9f9f9; display: flex; align-items: center; justify-content: center;';
+                    // 空槽位 - 点击打开选择弹窗
+                    thumb.style.cssText = 'position: relative; width: 60px; height: 60px; border-radius: 4px; overflow: hidden; border: 2px dashed #ccc; background: #f9f9f9; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s;';
                     thumb.innerHTML = `
-                        <div style="text-align: center; color: #999; font-size: 9px;">&lt;Audio ${i + 1}&gt;<br><span style="font-size: 16px;">+</span></div>
+                        <div style="text-align: center; color: #999; font-size: 9px; pointer-events: none;">&lt;Audio ${i + 1}&gt;<br><span style="font-size: 16px;">+</span></div>
                     `;
+                    thumb.onmouseenter = () => { thumb.style.borderColor = '#667eea'; thumb.style.background = '#f0f3ff'; };
+                    thumb.onmouseleave = () => { thumb.style.borderColor = '#ccc'; thumb.style.background = '#f9f9f9'; };
+                    thumb.onclick = () => openAudioSlotPicker(i);
                 }
                 previewDiv.appendChild(thumb);
             }
-            infoDiv.style.display = 'none';
         }
 
         function removeAudio(index) {
             uploadedAudio[index] = null;
+            audioTrim[index] = { start: 0, end: 3 };  // 重置为默认截取前3秒
             updateAudioPreview();
             saveConfigToStorage();
         }
@@ -1972,21 +2208,36 @@
                 if (video) {
                     // 有视频的槽位 - 可点击预览
                     thumb.className = 'preview-thumb clickable';
-                    thumb.style.cssText = 'position: relative; width: 60px; height: 60px; border-radius: 4px; overflow: hidden; border: 2px solid #667eea; background: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer;';
+                    thumb.style.cssText = 'position: relative; width: 60px; height: 60px; border-radius: 4px; overflow: hidden; border: 2px solid #667eea; background: #000; display: flex; align-items: center; justify-content: center; cursor: pointer;';
                     thumb.onclick = (e) => {
                         if (e.target.tagName !== 'BUTTON') previewVideo(i);
                     };
+                    // 缩略图：服务器路径用缩略图 API，base64 用 video 元素首帧
+                    let thumbContent = '';
+                    if (video.path) {
+                        const thumbUrl = `/api/history/video-thumbnail/${encodeURIComponent(video.path)}`;
+                        thumbContent = `<img src="${thumbUrl}" style="width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div style="display:none;text-align:center;font-size:24px;width:100%;height:100%;align-items:center;justify-content:center;background:#222;">🎬</div>`;
+                    } else if (video.base64) {
+                        const mime = video.mime_type || 'video/mp4';
+                        const dataUrl = `data:${mime};base64,${video.base64}`;
+                        thumbContent = `<video src="${dataUrl}" preload="metadata" muted style="width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;pointer-events:none;"></video>`;
+                    } else {
+                        thumbContent = `<div style="text-align: center; font-size: 24px; pointer-events: none;">🎬</div>`;
+                    }
                     thumb.innerHTML = `
-                        <div style="text-align: center; font-size: 24px; pointer-events: none;">🎬</div>
+                        ${thumbContent}
                         <div style="position: absolute; bottom: 0; left: 0; right: 0; background: rgba(102,126,234,0.85); color: white; font-size: 9px; text-align: center; padding: 1px 0; pointer-events: none;">&lt;Video ${i + 1}&gt;</div>
                         <button type="button" onclick="event.stopPropagation(); removeVideo(${i})" style="position: absolute; top: -2px; right: -2px; width: 18px; height: 18px; border-radius: 50%; border: none; background: #f44336; color: white; font-size: 14px; cursor: pointer; line-height: 1; display: flex; align-items: center; justify-content: center;">&times;</button>
                     `;
                 } else {
-                    // 空槽位
-                    thumb.style.cssText = 'position: relative; width: 60px; height: 60px; border-radius: 4px; overflow: hidden; border: 2px dashed #ccc; background: #f9f9f9; display: flex; align-items: center; justify-content: center;';
+                    // 空槽位 - 可点击打开选择器
+                    thumb.style.cssText = 'position: relative; width: 60px; height: 60px; border-radius: 4px; overflow: hidden; border: 2px dashed #ccc; background: #f9f9f9; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s;';
                     thumb.innerHTML = `
-                        <div style="text-align: center; color: #999; font-size: 9px;">&lt;Video ${i + 1}&gt;<br><span style="font-size: 16px;">+</span></div>
+                        <div style="text-align: center; color: #999; font-size: 9px; pointer-events: none;">&lt;Video ${i + 1}&gt;<br><span style="font-size: 16px;">+</span></div>
                     `;
+                    thumb.onmouseenter = () => { thumb.style.borderColor = '#667eea'; thumb.style.background = '#f0f3ff'; };
+                    thumb.onmouseleave = () => { thumb.style.borderColor = '#ccc'; thumb.style.background = '#f9f9f9'; };
+                    thumb.onclick = () => openVideoSlotPicker(i);
                 }
                 previewDiv.appendChild(thumb);
             }
@@ -2047,10 +2298,35 @@
                 content = `<img src="${src}" alt="${escapeHtml(item.filename)}">`;
             } else if (type === 'audio') {
                 titleText = `<Audio ${index + 1}> - ${item.filename}`;
+                const audioMime = item.mime_type || 'audio/mpeg';
                 const src = item.type === 'upload'
-                    ? 'data:audio/mpeg;base64,' + item.base64
+                    ? `data:${audioMime};base64,` + item.base64
                     : `/api/browser/file?path=${encodeURIComponent(item.path)}`;
-                content = `<audio controls autoplay style="width: 100%; min-width: 400px;"><source src="${src}">您的浏览器不支持音频播放</audio>`;
+                const trim = audioTrim[index] || { start: 0, end: 3 };
+                content = `
+                    <div style="text-align:left; max-width:500px; margin:0 auto;">
+                        <audio id="audioPreviewPlayer" controls style="width: 100%; margin-bottom: 12px;"><source src="${src}">您的浏览器不支持音频播放</audio>
+                        <div style="background:#f8f9fa; border:1px solid #ddd; border-radius:8px; padding:12px;">
+                            <div style="font-size:13px; font-weight:500; color:#333; margin-bottom:10px;">🎬 音频截取（默认截取前 3 秒）</div>
+                            <div style="display:flex; gap:12px; align-items:center; margin-bottom:10px;">
+                                <label style="font-size:12px; color:#555; display:flex; flex-direction:column; flex:1;">
+                                    起始时间（秒）
+                                    <input type="number" id="audioTrimStart" value="${trim.start}" min="0" step="0.1" style="padding:6px 8px; border:1px solid #ccc; border-radius:4px; font-size:13px; margin-top:4px;">
+                                </label>
+                                <label style="font-size:12px; color:#555; display:flex; flex-direction:column; flex:1;">
+                                    结束时间（秒）
+                                    <input type="number" id="audioTrimEnd" value="${trim.end}" min="0" step="0.1" style="padding:6px 8px; border:1px solid #ccc; border-radius:4px; font-size:13px; margin-top:4px;">
+                                </label>
+                            </div>
+                            <div style="display:flex; gap:8px; align-items:center;">
+                                <button type="button" id="audioTrimPreviewBtn" style="padding:6px 12px; border:1px solid #667eea; background:white; color:#667eea; border-radius:4px; cursor:pointer; font-size:12px;">▶ 预览截取片段</button>
+                                <button type="button" id="audioTrimApplyBtn" style="padding:6px 12px; border:1px solid #4CAF50; background:#4CAF50; color:white; border-radius:4px; cursor:pointer; font-size:12px;">✓ 应用截取</button>
+                                <span id="audioTrimStatus" style="font-size:11px; color:#888;"></span>
+                            </div>
+                            <div id="audioTrimDuration" style="font-size:11px; color:#888; margin-top:6px;"></div>
+                        </div>
+                    </div>
+                `;
             } else if (type === 'video') {
                 titleText = `<Video ${index + 1}> - ${item.filename}`;
                 const src = item.type === 'upload'
@@ -2062,6 +2338,62 @@
             body.innerHTML = content;
             title.textContent = titleText;
             modal.classList.add('show');
+
+            // 音频裁剪按钮事件
+            if (type === 'audio') {
+                const player = document.getElementById('audioTrimPreviewBtn');
+                const applyBtn = document.getElementById('audioTrimApplyBtn');
+                const audioEl = document.querySelector('#audioPreviewPlayer');
+                const trimStatus = document.getElementById('audioTrimStatus');
+                const trimDuration = document.getElementById('audioTrimDuration');
+
+                // 显示音频总时长
+                if (audioEl) {
+                    audioEl.addEventListener('loadedmetadata', () => {
+                        const dur = audioEl.duration;
+                        if (isFinite(dur)) {
+                            trimDuration.textContent = `音频总时长: ${formatTimeMMSS(dur)} (${dur.toFixed(1)}秒)`;
+                        }
+                    });
+                    audioEl.addEventListener('timeupdate', () => {
+                        const startVal = parseFloat(document.getElementById('audioTrimStart').value) || 0;
+                        const endVal = parseFloat(document.getElementById('audioTrimEnd').value) || 0;
+                        if (endVal > 0 && audioEl.currentTime >= endVal) {
+                            audioEl.pause();
+                            audioEl.currentTime = startVal;
+                        }
+                    });
+                }
+
+                if (player) {
+                    player.onclick = () => {
+                        const startVal = parseFloat(document.getElementById('audioTrimStart').value) || 0;
+                        const endVal = parseFloat(document.getElementById('audioTrimEnd').value) || 0;
+                        if (audioEl && endVal > startVal) {
+                            audioEl.currentTime = startVal;
+                            audioEl.play();
+                            trimStatus.textContent = `预览: ${formatTimeMMSS(startVal)} → ${formatTimeMMSS(endVal)}`;
+                        } else {
+                            trimStatus.textContent = '结束时间必须大于起始时间';
+                        }
+                    };
+                }
+
+                if (applyBtn) {
+                    applyBtn.onclick = () => {
+                        const startVal = parseFloat(document.getElementById('audioTrimStart').value) || 0;
+                        const endVal = parseFloat(document.getElementById('audioTrimEnd').value) || 0;
+                        if (endVal <= startVal) {
+                            trimStatus.textContent = '结束时间必须大于起始时间';
+                            return;
+                        }
+                        audioTrim[index] = { start: startVal, end: endVal };
+                        trimStatus.textContent = `✓ 已应用: ${formatTimeMMSS(startVal)} → ${formatTimeMMSS(endVal)}`;
+                        updateAudioPreview();
+                        saveConfigToStorage();
+                    };
+                }
+            }
         }
 
         function closePreviewModal() {
@@ -2097,24 +2429,29 @@
             const file = e.target.files[0];
             if (!file) return;
 
-            const emptySlot = uploadedAudio.findIndex(a => a === null);
-            if (emptySlot === -1) {
+            let targetSlot = activeAudioSlot >= 0 ? activeAudioSlot : uploadedAudio.findIndex(a => a === null);
+            if (targetSlot === -1 || uploadedAudio[targetSlot] !== null) {
+                targetSlot = uploadedAudio.findIndex(a => a === null);
+            }
+            if (targetSlot === -1) {
                 showStatus('所有3个音频槽位都已使用', 'error');
                 e.target.value = '';
                 return;
             }
 
+            const slotToFill = targetSlot;
             const reader = new FileReader();
             reader.onload = (event) => {
-                uploadedAudio[emptySlot] = {
+                uploadedAudio[slotToFill] = {
                     type: 'upload',
                     filename: file.name,
                     base64: event.target.result.split(',')[1]
                 };
 
                 updateAudioPreview();
-                showStatus(`✅ 已上传音频到 <Audio ${emptySlot + 1}>: ${file.name}`, 'success');
+                showStatus(`✅ 已上传音频到 <Audio ${slotToFill + 1}>: ${file.name}`, 'success');
                 saveConfigToStorage();
+                closeAudioSlotPicker();
             };
             reader.readAsDataURL(file);
             e.target.value = '';
@@ -2124,24 +2461,29 @@
             const file = e.target.files[0];
             if (!file) return;
 
-            const emptySlot = uploadedVideo.findIndex(v => v === null);
-            if (emptySlot === -1) {
+            let targetSlot = activeVideoSlot >= 0 ? activeVideoSlot : uploadedVideo.findIndex(v => v === null);
+            if (targetSlot === -1 || uploadedVideo[targetSlot] !== null) {
+                targetSlot = uploadedVideo.findIndex(v => v === null);
+            }
+            if (targetSlot === -1) {
                 showStatus('所有3个视频槽位都已使用', 'error');
                 e.target.value = '';
                 return;
             }
 
+            const slotToFill = targetSlot;
             const reader = new FileReader();
             reader.onload = (event) => {
-                uploadedVideo[emptySlot] = {
+                uploadedVideo[slotToFill] = {
                     type: 'upload',
                     filename: file.name,
                     base64: event.target.result.split(',')[1]
                 };
 
                 updateVideoPreview();
-                showStatus(`✅ 已上传视频到 <Video ${emptySlot + 1}>: ${file.name}`, 'success');
+                showStatus(`✅ 已上传视频到 <Video ${slotToFill + 1}>: ${file.name}`, 'success');
                 saveConfigToStorage();
+                closeVideoSlotPicker();
             };
             reader.readAsDataURL(file);
             e.target.value = '';
@@ -2233,18 +2575,19 @@
                             let mainError = task.error;
                             let oomHint = '';
                             if (isOom) {
-                                const parts = task.error.split(/💥\s*显存不足/);
-                                mainError = parts[0].replace(/OOM_ERROR:\s*/, '').trim();
-                                oomHint = (parts[1] || '').trim();
+                                // 提取 OOM 提示（💥 开头到 \n\n 或结尾）
+                                const m = task.error.match(/OOM_ERROR:\s*([\s\S]+)/);
+                                oomHint = m ? m[1].trim() : '';
+                                mainError = '';  // OOM 不显示原始错误
                             }
                             return `
                             <div class="task-error" style="margin-top:6px;padding:8px;background:${isOom ? '#fff3e0' : '#ffebee'};border-radius:4px;border-left:3px solid ${isOom ? '#ff9800' : '#f44336'};">
                                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-                                    <div style="font-size:11px;color:${isOom ? '#e65100' : '#c62828'};font-weight:500;">${isOom ? '💥 显存不足' : '错误详情'}</div>
+                                    <div style="font-size:11px;color:${isOom ? '#e65100' : '#c62828'};font-weight:500;">${isOom ? '💥 显存不足' : '❌ 任务失败'}</div>
                                     <button type="button" onclick="copyTaskError('${task.id}')" style="padding:2px 8px;border:1px solid #1976d2;background:white;color:#1976d2;border-radius:3px;cursor:pointer;font-size:10px;transition:all 0.2s;" onmouseover="this.style.background='#1976d2';this.style.color='white'" onmouseout="this.style.background='white';this.style.color='#1976d2'">📋 复制</button>
                                 </div>
-                                ${oomHint ? `<div style="font-size:11px;color:#e65100;font-weight:500;line-height:1.6;margin-bottom:6px;white-space:pre-wrap;">💥 ${escapeHtml(oomHint).replace(/\\n/g, '\n')}</div>` : ''}
-                                <div class="task-error-text" style="font-size:10px;color:#333;word-break:break-all;max-height:100px;overflow-y:auto;line-height:1.4;white-space:pre-wrap;">${escapeHtml(mainError)}</div>
+                                ${oomHint ? `<div style="font-size:11px;color:#e65100;font-weight:500;line-height:1.7;white-space:pre-wrap;">${escapeHtml(oomHint).replace(/\\n/g, '\n')}</div>` : ''}
+                                ${mainError ? `<details style="margin-top:4px;"><summary style="font-size:10px;color:#888;cursor:pointer;">查看原始错误</summary><div class="task-error-text" style="font-size:10px;color:#555;word-break:break-all;max-height:120px;overflow-y:auto;line-height:1.4;white-space:pre-wrap;margin-top:4px;padding:6px;background:#f8f8f8;border-radius:3px;">${escapeHtml(mainError)}</div></details>` : ''}
                             </div>`;
                         })() : ''}
                     </div>
@@ -2321,52 +2664,7 @@
             saveTasksToStorage();
         }
 
-        async function syncFromComfyUI() {
-            const btn = document.getElementById('syncTaskBtn');
-            const origText = btn.innerHTML;
-            btn.innerHTML = '⏳ 同步中...';
-            btn.disabled = true;
-
-            try {
-                const response = await fetch('/api/tasks/sync', { method: 'POST' });
-                if (!response.ok) {
-                    const err = await response.json();
-                    throw new Error(err.detail || '同步失败');
-                }
-                const data = await response.json();
-
-                // 从服务器重新拉取任务列表
-                const taskResp = await fetch('/api/tasks?limit=50');
-                if (taskResp.ok) {
-                    const taskData = await taskResp.json();
-                    activeTasks = (taskData.tasks || []).map(t => ({
-                        id: t.task_id,
-                        model: t.model,
-                        prompt: t.prompt || '',
-                        status: t.status,
-                        progress: t.progress || 0,
-                        createdAt: t.created_at,
-                        resultShown: t.status === 'completed',
-                        errorShown: t.status === 'failed',
-                        error: t.error || null,
-                        comfyui_progress: t.comfyui_progress || null
-                    }));
-                }
-
-                updateTaskList();
-                updateTaskCounter();
-                saveTasksToStorage();
-                startTaskPolling();
-
-                const msg = `✅ 同步完成：新增 ${data.imported || 0} 个，更新 ${data.updated || 0} 个`;
-                showStatus(msg, 'success');
-            } catch (error) {
-                showStatus(`❌ 同步失败: ${error.message}`, 'error');
-            } finally {
-                btn.innerHTML = origText;
-                btn.disabled = false;
-            }
-        }
+        // ========== 预设管理 ==========
 
         // ========== 配置预设管理 ==========
 
@@ -2744,44 +3042,24 @@
                 return;
             }
 
-            let videoUrl;
             let downloadName = result.filename || 'video.mp4';
 
-            if (result.video) {
-                // base64 视频数据（旧格式或后台下载完成）
-                const videoBlob = new Blob(
-                    [Uint8Array.from(atob(result.video), c => c.charCodeAt(0))],
-                    { type: 'video/mp4' }
-                );
-                videoUrl = URL.createObjectURL(videoBlob);
+            const sizeMB = result.size ? (result.size / 1024 / 1024).toFixed(2) :
+                           result.output_path ? '（已保存到磁盘）' : '?';
+            if (result.downloading) {
+                showStatus(`✅ 视频生成成功！正在保存到磁盘...`, 'success');
             } else if (result.output_path) {
-                // 通过文件路径访问（新格式，视频已保存到磁盘）
-                videoUrl = `/api/history/video/${encodeURIComponent(result.output_path)}`;
-            }
-
-            if (videoUrl) {
-                document.getElementById('videoPlayer').src = videoUrl;
-                document.getElementById('downloadBtn').href = videoUrl;
-                document.getElementById('downloadBtn').download = downloadName;
-                document.getElementById('resultBox').classList.add('show');
-
-                const sizeMB = result.size ? (result.size / 1024 / 1024).toFixed(2) :
-                               result.output_path ? '（已保存到磁盘）' : '?';
-                if (result.downloading) {
-                    showStatus(`✅ 视频生成成功！正在保存到磁盘...`, 'success');
-                } else {
-                    showStatus(`✅ 视频生成成功！大小: ${sizeMB}`, 'success');
-                }
+                showStatus(`✅ 视频生成成功！已保存: ${result.output_path}  大小: ${sizeMB}`, 'success');
             } else {
-                showStatus('✅ 任务完成，但未获取到视频结果', 'success');
+                showStatus(`✅ 视频生成成功！大小: ${sizeMB}`, 'success');
             }
             // 刷新历史记录
             loadHistory();
         }
 
-        // ========== 历史记录 ==========
+        // ========== 文件管理 ==========
 
-        let historyPath = 'Haimi';
+        let historyPath = 'MMX_ComfyUI-output/Haimi';
         let historyOffset = 0;
         const HISTORY_PAGE_SIZE = 30;
 
@@ -2823,14 +3101,18 @@
         }
 
         async function setCurrentPathAsOutput() {
-            // 将当前历史浏览器浏览的路径设为输出子目录
-            // historyPath 是相对于 COMFYUI_OUTPUT_DIR 的路径，需要去掉 Haimi/ 前缀
-            // 因为 output_subdir 是相对于 HAIMI_OUTPUT_DIR（即 Haimi）的
+            // 将当前文件管理浏览的路径设为输出子目录
+            // historyPath 是相对于 /mnt/storage 的路径
+            // output_subdir 是相对于 HAIMI_OUTPUT_DIR（即 MMX_ComfyUI-output/Haimi）的
             let subdir = historyPath;
-            if (subdir === 'Haimi') {
+            const haimiPrefix = 'MMX_ComfyUI-output/Haimi';
+            if (subdir === haimiPrefix) {
                 subdir = '';  // 根目录就是 Haimi 本身
-            } else if (subdir.startsWith('Haimi/')) {
-                subdir = subdir.substring('Haimi/'.length);
+            } else if (subdir.startsWith(haimiPrefix + '/')) {
+                subdir = subdir.substring(haimiPrefix.length + 1);
+            } else {
+                showStatus('❌ 请选择 Haimi 目录或其子目录作为保存路径', 'error');
+                return;
             }
             const inputEl = document.getElementById('outputSubdirInput');
             if (inputEl) inputEl.value = subdir;
@@ -2932,15 +3214,7 @@
                             </div>
                         `;
                         card.appendChild(content);
-                        card.onclick = () => {
-                            const videoPlayer = document.getElementById('videoPlayer');
-                            videoPlayer.src = videoUrl;
-                            document.getElementById('downloadBtn').href = videoUrl;
-                            document.getElementById('downloadBtn').download = item.name;
-                            document.getElementById('resultBox').classList.add('show');
-                            showStatus(`🎬 正在播放: ${item.name}`, 'info');
-                            document.getElementById('resultBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        };
+                        card.onclick = () => openFileManagerPreview(item);
                     } else if (item.type === 'image') {
                         const imgUrl = `/api/history/image/${encodeURIComponent(item.path)}`;
                         const content = document.createElement('div');
@@ -2953,7 +3227,30 @@
                             </div>
                         `;
                         card.appendChild(content);
-                        card.onclick = () => window.open(imgUrl, '_blank');
+                        card.onclick = () => openFileManagerPreview(item);
+                    } else if (item.type === 'audio') {
+                        const audioUrl = `/api/history/audio/${encodeURIComponent(item.path)}`;
+                        const content = document.createElement('div');
+                        content.innerHTML = `
+                            <div style="display: flex; align-items: center; justify-content: center; height: 60px; background: linear-gradient(135deg, #667eea22, #764ba222); font-size: 28px;">🎵</div>
+                            <div style="padding: 4px 6px;">
+                                <div style="font-size: 10px; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
+                                <div style="font-size: 9px; color: #888;">${formatFileSize(item.size)}</div>
+                            </div>
+                        `;
+                        card.appendChild(content);
+                        card.onclick = () => openFileManagerPreview(item);
+                    } else if (item.type === 'text') {
+                        const content = document.createElement('div');
+                        content.innerHTML = `
+                            <div style="display: flex; align-items: center; justify-content: center; height: 60px; background: #fff8e1; font-size: 24px;">📝</div>
+                            <div style="padding: 4px 6px;">
+                                <div style="font-size: 10px; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
+                                <div style="font-size: 9px; color: #888;">${formatFileSize(item.size)}</div>
+                            </div>
+                        `;
+                        card.appendChild(content);
+                        card.onclick = () => openFileManagerPreview(item);
                     } else {
                         const content = document.createElement('div');
                         content.innerHTML = `
@@ -2961,6 +3258,7 @@
                             <div style="padding: 4px 6px; font-size: 10px; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(item.name)}</div>
                         `;
                         card.appendChild(content);
+                        card.onclick = () => openFileManagerPreview(item);
                     }
 
                     grid.appendChild(card);
@@ -2990,6 +3288,230 @@
                 historyPath = parts.join('/');
                 historyOffset = 0;
                 loadHistory();
+            }
+        }
+
+        // ========== 文件管理预览 + 添加到槽位 ==========
+
+        let currentFmItem = null;  // 当前文件管理预览的文件
+
+        function openFileManagerPreview(item) {
+            currentFmItem = item;
+            const modal = document.getElementById('fmPreviewModal');
+            const body = document.getElementById('fmPreviewBody');
+            const title = document.getElementById('fmPreviewTitle');
+            title.textContent = item.name;
+
+            let previewHtml = '';
+            let actionHtml = '';
+
+            if (item.type === 'image') {
+                const imgUrl = `/api/history/image/${encodeURIComponent(item.path)}`;
+                previewHtml = `<img src="${imgUrl}" style="max-width:100%; max-height:50vh; display:block; margin:0 auto; border-radius:6px;">`;
+                actionHtml = `
+                    <button type="button" style="flex:1; padding:10px; border:1px solid #667eea; background:white; color:#667eea; border-radius:6px; cursor:pointer; font-size:13px;">🖼️ 添加到图片参考槽位</button>
+                `;
+            } else if (item.type === 'audio') {
+                const audioUrl = `/api/history/audio/${encodeURIComponent(item.path)}`;
+                previewHtml = `<audio controls autoplay style="width:100%;"><source src="${audioUrl}">您的浏览器不支持音频播放</audio>`;
+                actionHtml = `
+                    <button type="button" style="flex:1; padding:10px; border:1px solid #667eea; background:white; color:#667eea; border-radius:6px; cursor:pointer; font-size:13px;">🎵 添加到音频参考槽位</button>
+                `;
+            } else if (item.type === 'video') {
+                const videoUrl = `/api/history/video/${encodeURIComponent(item.path)}`;
+                previewHtml = `<video controls autoplay style="max-width:100%; max-height:50vh; display:block; margin:0 auto;"><source src="${videoUrl}">您的浏览器不支持视频播放</video>`;
+                actionHtml = `
+                    <button type="button" style="flex:1; padding:10px; border:1px solid #667eea; background:white; color:#667eea; border-radius:6px; cursor:pointer; font-size:13px;">🎬 添加到视频参考槽位</button>
+                `;
+            } else if (item.type === 'text') {
+                const textUrl = `/api/history/text/${encodeURIComponent(item.path)}`;
+                previewHtml = `<div id="fmTextPreview" style="max-height:50vh; overflow-y:auto; background:#f8f9fa; border:1px solid #ddd; border-radius:6px; padding:12px; font-family:monospace; font-size:12px; white-space:pre-wrap; word-break:break-all;">加载中...</div>`;
+                actionHtml = `
+                    <button type="button" style="flex:1; padding:10px; border:1px solid #4CAF50; background:white; color:#4CAF50; border-radius:6px; cursor:pointer; font-size:13px;">📝 添加到提示词</button>
+                `;
+                // 异步加载文本内容
+                fetch(textUrl).then(r => r.ok ? r.text() : Promise.reject()).then(text => {
+                    const el = document.getElementById('fmTextPreview');
+                    if (el) el.textContent = text;
+                }).catch(() => {
+                    const el = document.getElementById('fmTextPreview');
+                    if (el) el.textContent = '加载失败';
+                });
+            } else {
+                previewHtml = `<div style="text-align:center; padding:40px; color:#888;">📄 该文件类型暂不支持预览</div>`;
+            }
+
+            body.innerHTML = `
+                <div style="margin-bottom:15px;">
+                    ${previewHtml}
+                </div>
+                <div id="fmActionRow" style="display:flex; gap:10px; align-items:center; padding:10px; background:#f8f9fa; border-radius:8px;">
+                    ${actionHtml}
+                    <button type="button" id="fmDeleteBtn" style="flex:0 0 auto; padding:10px 14px; border:1px solid #f44336; background:white; color:#f44336; border-radius:6px; cursor:pointer; font-size:13px;">🗑️ 删除</button>
+                </div>
+                <div style="font-size:11px; color:#888; margin-top:8px; text-align:center;">
+                    ${escapeHtml(item.name)} · ${item.is_dir ? '目录' : formatFileSize(item.size)}
+                </div>
+            `;
+            // 用闭包绑定操作按钮，直接捕获 item，避免依赖全局变量
+            const actionRow = document.getElementById('fmActionRow');
+            const actionBtns = actionRow.querySelectorAll('button');
+            // 最后一个按钮是删除
+            actionBtns[actionBtns.length - 1].onclick = () => confirmDeleteFmItem();
+            // 前面的按钮是添加操作（根据类型）
+            if (item.type === 'image') {
+                actionBtns[0].onclick = () => openSlotPicker('image', item);
+            } else if (item.type === 'audio') {
+                actionBtns[0].onclick = () => openSlotPicker('audio', item);
+            } else if (item.type === 'video') {
+                actionBtns[0].onclick = () => openSlotPicker('video', item);
+            } else if (item.type === 'text') {
+                actionBtns[0].onclick = () => addTextToPrompt(item);
+            }
+            modal.classList.add('show');
+        }
+
+        function closeFmPreview() {
+            document.getElementById('fmPreviewModal').classList.remove('show');
+            // 停止音视频播放
+            document.querySelectorAll('#fmPreviewBody audio, #fmPreviewBody video').forEach(el => { el.pause(); el.src = ''; });
+            currentFmItem = null;
+        }
+
+        async function confirmDeleteFmItem() {
+            if (!currentFmItem) return;
+            if (!confirm(`确定要删除 "${currentFmItem.name}" 吗？此操作不可恢复！`)) return;
+            try {
+                const response = await fetch(`/api/history/file?path=${encodeURIComponent(currentFmItem.path)}`, { method: 'DELETE' });
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || '删除失败');
+                }
+                showStatus(`🗑️ 已删除: ${currentFmItem.name}`, 'success');
+                closeFmPreview();
+                loadHistory();
+            } catch (error) {
+                showStatus(`❌ 删除失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 槽位选择弹窗
+        let slotPickerType = null;   // 'image' | 'audio' | 'video'
+        let slotPickerItem = null;   // 当前要添加的文件项
+
+        function openSlotPicker(type, item) {
+            if (item) currentFmItem = item;
+            slotPickerType = type;
+            slotPickerItem = currentFmItem;
+            const modal = document.getElementById('slotPickerModal');
+            const title = document.getElementById('slotPickerTitle');
+            const grid = document.getElementById('slotPickerGrid');
+
+            let maxSlots, slots, slotLabel;
+            if (type === 'image') {
+                maxSlots = 9; slots = uploadedImages; slotLabel = 'Picture';
+                title.textContent = `选择图片参考槽位（共 ${maxSlots} 个）`;
+            } else if (type === 'audio') {
+                maxSlots = 3; slots = uploadedAudio; slotLabel = 'Audio';
+                title.textContent = `选择音频参考槽位（共 ${maxSlots} 个）`;
+            } else if (type === 'video') {
+                maxSlots = 3; slots = uploadedVideo; slotLabel = 'Video';
+                title.textContent = `选择视频参考槽位（共 ${maxSlots} 个）`;
+            }
+
+            grid.innerHTML = '';
+            for (let i = 0; i < maxSlots; i++) {
+                const slot = slots[i];
+                const btn = document.createElement('div');
+                btn.style.cssText = 'position:relative; aspect-ratio:1; border-radius:8px; border:2px solid ' + (slot ? '#667eea' : '#ccc') + '; background:' + (slot ? '#f0f3ff' : '#f9f9f9') + '; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-direction:column; transition:all 0.2s; overflow:hidden;';
+                const icon = type === 'image' ? '🖼️' : type === 'audio' ? '🎵' : '🎬';
+                const status = slot ? `<div style="font-size:9px; color:#667eea; margin-top:2px;">已占用</div>` : `<div style="font-size:9px; color:#888; margin-top:2px;">空槽位</div>`;
+                btn.innerHTML = `
+                    <div style="font-size:20px;">${icon}</div>
+                    <div style="font-size:10px; color:#333; font-weight:500;">&lt;${slotLabel} ${i + 1}&gt;</div>
+                    ${status}
+                `;
+                btn.onmouseenter = () => { btn.style.borderColor = '#667eea'; btn.style.background = '#e8edff'; };
+                btn.onmouseleave = () => { btn.style.borderColor = slot ? '#667eea' : '#ccc'; btn.style.background = slot ? '#f0f3ff' : '#f9f9f9'; };
+                btn.onclick = () => {
+                    const slotName = `<${slotLabel} ${i + 1}>`;
+                    const msg = slot ? `槽位 ${slotName} 已被占用，是否覆盖？` : `确认将文件添加到槽位 ${slotName}？`;
+                    if (!confirm(msg)) return;
+                    addFileToSlot(type, i);
+                };
+                grid.appendChild(btn);
+            }
+            modal.classList.add('show');
+        }
+
+        function closeSlotPicker() {
+            document.getElementById('slotPickerModal').classList.remove('show');
+            slotPickerType = null;
+            slotPickerItem = null;
+        }
+
+        async function addFileToSlot(type, slotIndex) {
+            const item = slotPickerItem || currentFmItem;
+            if (!item) { showStatus('❌ 未选中文件', 'error'); return; }
+            try {
+                showStatus('⏳ 正在加载文件数据...', 'info');
+                const resp = await fetch(`/api/history/file-base64/${encodeURIComponent(item.path)}`);
+                if (!resp.ok) throw new Error('加载文件失败');
+                const data = await resp.json();
+
+                if (type === 'image') {
+                    uploadedImages[slotIndex] = {
+                        type: 'server',
+                        filename: data.filename,
+                        path: item.path,
+                        preview: `/api/history/image/${encodeURIComponent(item.path)}`,
+                        base64: data.base64
+                    };
+                    updateImageList();
+                } else if (type === 'audio') {
+                    uploadedAudio[slotIndex] = {
+                        type: 'server',
+                        filename: data.filename,
+                        path: item.path,
+                        base64: data.base64,
+                        mime_type: data.mime_type
+                    };
+                    updateAudioPreview();
+                } else if (type === 'video') {
+                    uploadedVideo[slotIndex] = {
+                        type: 'server',
+                        filename: data.filename,
+                        path: item.path,
+                        base64: data.base64
+                    };
+                    updateVideoPreview();
+                }
+                saveConfigToStorage();
+                const slotLabel = type === 'image' ? 'Picture' : type === 'audio' ? 'Audio' : 'Video';
+                showStatus(`✅ 已添加到 <${slotLabel} ${slotIndex + 1}>: ${data.filename}`, 'success');
+                closeSlotPicker();
+                closeFmPreview();
+            } catch (error) {
+                showStatus(`❌ 添加失败: ${error.message}`, 'error');
+            }
+        }
+
+        async function addTextToPrompt(item) {
+            const target = item || currentFmItem;
+            if (!target) { showStatus('❌ 未选中文件', 'error'); return; }
+            if (!confirm(`确认将 "${target.name}" 的内容添加到提示词框？\n\n（将追加到当前提示词末尾）`)) return;
+            try {
+                const resp = await fetch(`/api/history/text/${encodeURIComponent(target.path)}`);
+                if (!resp.ok) throw new Error('加载文本失败');
+                const text = await resp.text();
+                const promptEl = document.getElementById('promptInput');
+                const current = promptEl.value.trim();
+                promptEl.value = current ? current + '\n\n' + text.trim() : text.trim();
+                saveConfigToStorage();
+                showStatus(`✅ 已将 "${target.name}" 添加到提示词`, 'success');
+                closeFmPreview();
+            } catch (error) {
+                showStatus(`❌ 添加失败: ${error.message}`, 'error');
             }
         }
 
@@ -3045,12 +3567,11 @@
 
             // 如果 ComfyUI 未就绪，友好提示但仍然允许提交（任务会等待自动提交）
             if (!comfyUIAvailable) {
-                showStatus('⏳ ComfyUI 正在启动中，任务已加入等待队列，启动后将自动提交', 'info');
+                showStatus('⏳ ComfyUI (8188) 尚未启动，任务已加入等待队列 — 启动成功后会自动提交，请耐心等待', 'info');
             }
 
             const submitBtn = document.getElementById('submitBtn');
             submitBtn.textContent = '⏳ 准备数据中...';
-            document.getElementById('resultBox').classList.remove('show');
 
             try {
                 // 获取所有图片的 base64（跳过空槽位）
@@ -3061,7 +3582,8 @@
 
                 // 获取音频和视频的 base64（取第一个非空槽位，保持向后兼容）
                 let audioBase64 = null;
-                const firstAudio = uploadedAudio.find(a => a !== null);
+                const firstAudioIdx = uploadedAudio.findIndex(a => a !== null);
+                const firstAudio = firstAudioIdx >= 0 ? uploadedAudio[firstAudioIdx] : null;
                 if (firstAudio) {
                     showStatus('正在准备音频数据...', 'info');
                     audioBase64 = await getServerFileBase64(firstAudio);
@@ -3074,6 +3596,9 @@
                     videoBase64 = await getServerFileBase64(firstVideo);
                 }
 
+                // 音频裁剪参数（取第一个非空槽位的裁剪设置）
+                const audioTrimValues = firstAudioIdx >= 0 ? audioTrim[firstAudioIdx] : { start: 0, end: 3 };
+
                 // 准备提交数据
                 const filenamePrefix = document.getElementById('filenamePrefixInput').value.trim();
                 const data = {
@@ -3081,6 +3606,8 @@
                     data: {
                         images: imageBase64List,
                         audio: audioBase64,
+                        audio_start_time: formatTimeMMSS(audioTrimValues.start),
+                        audio_end_time: formatTimeMMSS(audioTrimValues.end),
                         video: videoBase64,
                         prompt: prompt,
                         duration: parseFloat(document.getElementById('durationInput').value),
@@ -3091,7 +3618,7 @@
                 };
 
                 // 在按钮下方显示提交状态
-                document.getElementById('submitStatusText').textContent = '正在提交任务到队列...';
+                showStatus('⏳ 正在提交任务到队列...', 'info');
 
                 const response = await fetch('/api/generate', {
                     method: 'POST',
@@ -3134,7 +3661,6 @@
                 // 恢复按钮状态，允许连续提交
                 submitBtn.disabled = false;
                 submitBtn.textContent = '🚀 生成视频';
-                document.getElementById('submitStatusText').textContent = '';
 
                 updateTaskList();
                 updateTaskCounter();
@@ -3142,9 +3668,16 @@
                 saveTasksToStorage();
 
             } catch (error) {
-                showStatus(`❌ 提交失败: ${error.message}`, 'error');
-                document.getElementById('submitStatusText').textContent = `❌ ${error.message}`;
-                setTimeout(() => { document.getElementById('submitStatusText').textContent = ''; }, 5000);
+                let friendlyMsg = error.message;
+                // 针对常见错误给出友好提示
+                if (error.message && (error.message.includes('Failed to fetch') || error.message.includes('NetworkError') || error.message.includes('fetch'))) {
+                    friendlyMsg = '无法连接到服务器，请检查网络连接是否正常';
+                } else if (error.message && (error.message.includes('COMFYUI_NOT_AVAILABLE') || error.message.includes('8188') || error.message.includes('ComfyUI'))) {
+                    friendlyMsg = '⏳ ComfyUI 尚未启动 (端口 8188)，任务已保存，启动后会自动提交，请耐心等待…';
+                } else if (error.message && error.message.includes('timeout')) {
+                    friendlyMsg = '请求超时，ComfyUI 可能正在启动中，请稍后再试';
+                }
+                showStatus(`❌ 提交失败: ${friendlyMsg}`, 'error');
                 console.error('提交失败:', error);
                 submitBtn.disabled = false;
                 submitBtn.textContent = '🚀 生成视频';
@@ -3260,10 +3793,14 @@
         document.addEventListener('DOMContentLoaded', async () => {
             checkComfyUIHealth();  // 检查 ComfyUI 是否可用
             await loadModels();
+            // 先恢复用户配置（决定是否跳过预置自动填充）
+            loadConfigFromStorage();
             await loadPromptTemplates();
+            await loadImagePresets();
+            await loadAudioPresets();
+            await loadVideoPresets();
             setupFileUploads();
             updateResolutionLabel(document.getElementById('resolutionInput').value);
-            loadConfigFromStorage();
             setupAutoSave();
             loadVersionInfo();
             loadHistory();
@@ -3280,6 +3817,26 @@
             <button class="preview-modal-close" onclick="closePreviewModal()">&times;</button>
             <div id="previewModalBody"></div>
             <div class="preview-modal-title" id="previewModalTitle"></div>
+        </div>
+    </div>
+
+    <!-- 文件管理预览弹窗 -->
+    <div class="preview-modal" id="fmPreviewModal" onclick="if(event.target===this) closeFmPreview()" style="z-index:10001;">
+        <div class="preview-modal-content" style="max-width:700px; max-height:90vh; overflow-y:auto;">
+            <button class="preview-modal-close" onclick="closeFmPreview()">&times;</button>
+            <div id="fmPreviewBody" style="padding:20px;"></div>
+            <div class="preview-modal-title" id="fmPreviewTitle"></div>
+        </div>
+    </div>
+
+    <!-- 槽位选择弹窗 -->
+    <div class="preview-modal" id="slotPickerModal" onclick="if(event.target===this) closeSlotPicker()" style="z-index:10002;">
+        <div class="preview-modal-content" style="max-width:500px;">
+            <button class="preview-modal-close" onclick="closeSlotPicker()">&times;</button>
+            <div style="padding:20px;">
+                <div id="slotPickerTitle" style="font-size:15px; font-weight:600; color:#333; margin-bottom:15px;"></div>
+                <div id="slotPickerGrid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(90px, 1fr)); gap:10px;"></div>
+            </div>
         </div>
     </div>
 

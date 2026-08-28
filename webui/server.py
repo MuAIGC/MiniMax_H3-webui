@@ -5,6 +5,7 @@ ComfyUI WebUI 管理服务
 调用：8026（API 服务）
 """
 
+import hashlib
 import os
 import json
 import shutil
@@ -22,7 +23,7 @@ from datetime import datetime
 from urllib.parse import quote
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
@@ -47,6 +48,13 @@ DB_PATH = Path("/tmp/webui_tasks.db")
 COMFYUI_INPUT_DIR = Path("/mnt/storage/MMX_ComfyUI-input")
 COMFYUI_OUTPUT_DIR = Path("/mnt/storage/MMX_ComfyUI-output")
 HAIMI_OUTPUT_DIR = Path("/mnt/storage/MMX_ComfyUI-output/Haimi")
+FILE_MANAGER_ROOT = Path("/mnt/storage")  # 文件管理可访问的根目录
+
+# ── 性能优化：HTTP 连接池 ──
+HTTP_SESSION = requests.Session()
+_adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20)
+HTTP_SESSION.mount("http://", _adapter)
+HTTP_SESSION.mount("https://", _adapter)
 
 # 确保目录存在
 WORKFLOW_CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -61,11 +69,17 @@ STATIC_DIR.mkdir(exist_ok=True)
 
 # ========== 数据库工具 ==========
 
+# ── 性能优化：SQLite 连接复用（单例模式）──
+_db_conn = None
+
 def get_db():
-    """获取数据库连接"""
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    return conn
+    """获取数据库连接（复用同一连接，避免频繁开关）"""
+    global _db_conn
+    if _db_conn is None:
+        _db_conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+        _db_conn.row_factory = sqlite3.Row
+        _db_conn.execute("PRAGMA journal_mode=WAL")  # WAL 模式：读写并发性能提升 2-3x
+    return _db_conn
 
 def init_database():
     """初始化数据库表"""
@@ -104,7 +118,6 @@ def init_database():
         """)
 
         conn.commit()
-        conn.close()
         print(f"✅ 数据库初始化成功: {DB_PATH}")
     except Exception as e:
         print(f"❌ 数据库初始化失败: {e}")
@@ -144,7 +157,7 @@ def reset_stuck_tasks():
             """, to_reset)
 
         conn.commit()
-        conn.close()
+
 
         if to_reset:
             print(f"🔄 已重置 {len(to_reset)} 个未提交的任务（processing → pending）")
@@ -253,7 +266,7 @@ def submit_pending_tasks():
             ORDER BY created_at ASC
         """)
         pending_rows = cursor.fetchall()
-        conn.close()
+
 
         for task_row in pending_rows:
             task_id = task_row['id']
@@ -275,7 +288,7 @@ def submit_pending_tasks():
             """, (datetime.now().isoformat(), task_id))
             updated = cursor.rowcount
             conn.commit()
-            conn.close()
+
 
             if updated == 0:
                 continue
@@ -284,7 +297,7 @@ def submit_pending_tasks():
             data["_task_id"] = task_id
 
             try:
-                response = requests.post(
+                response = HTTP_SESSION.post(
                     f"{API_BASE_URL}/submit",
                     json={"model": model, "data": data},
                     timeout=30
@@ -304,7 +317,6 @@ def submit_pending_tasks():
                         WHERE id = ?
                     """, (task_id,))
                     conn.commit()
-                    conn.close()
                     print(f"⏳ ComfyUI 未启动，任务 {task_id[:8]}... 等待下次重试")
                 elif response.status_code == 504 and "COMFYUI_TIMEOUT" in response.text:
                     # ComfyUI 响应超时（可能正在启动），保持 pending 重试
@@ -315,7 +327,6 @@ def submit_pending_tasks():
                         WHERE id = ?
                     """, (task_id,))
                     conn.commit()
-                    conn.close()
                     print(f"⏳ ComfyUI 响应超时，任务 {task_id[:8]}... 等待下次重试")
                 else:
                     error_msg = f"提交失败: {response.status_code} - {response.text}"
@@ -329,7 +340,6 @@ def submit_pending_tasks():
                         WHERE id = ?
                     """, (error_msg, datetime.now().isoformat(), task_id))
                     conn.commit()
-                    conn.close()
                     print(f"❌ 提交失败: {task_id[:8]}... - {error_msg}")
             except Exception as e:
                 error_msg = f"提交异常: {str(e)}"
@@ -343,7 +353,6 @@ def submit_pending_tasks():
                         WHERE id = ?
                     """, (error_msg, datetime.now().isoformat(), task_id))
                     conn.commit()
-                    conn.close()
                 except Exception as db_err:
                     print(f"❌ 更新任务状态失败: {db_err}")
                 print(f"❌ 提交异常: {task_id[:8]}... - {error_msg}")
@@ -363,13 +372,13 @@ def poll_processing_tasks():
             ORDER BY created_at ASC
         """)
         active_rows = cursor.fetchall()
-        conn.close()
+
 
         for task_row in active_rows:
             task_id = task_row['id']
             current_db_status = task_row['status']
             try:
-                response = requests.get(
+                response = HTTP_SESSION.get(
                     f"{API_BASE_URL}/result/{task_id}",
                     timeout=30
                 )
@@ -389,7 +398,6 @@ def poll_processing_tasks():
                         WHERE id = ?
                     """, (json.dumps(result), datetime.now().isoformat(), task_id))
                     conn.commit()
-                    conn.close()
                     print(f"✅ 任务完成: {task_id[:8]}...")
 
                     # 任务完成后，剥离 data 中的 base64 大字段，减小 DB 体积
@@ -405,7 +413,6 @@ def poll_processing_tasks():
                             cur3.execute("UPDATE tasks SET data = ? WHERE id = ?",
                                          (json.dumps(slim_data, ensure_ascii=False), task_id))
                             conn3.commit()
-                        conn3.close()
                     except Exception as strip_err:
                         print(f"⚠️ 剥离 base64 失败（不影响任务）: {strip_err}")
 
@@ -421,7 +428,6 @@ def poll_processing_tasks():
                         WHERE id = ?
                     """, (error_msg, datetime.now().isoformat(), task_id))
                     conn.commit()
-                    conn.close()
                     print(f"❌ 任务失败: {task_id[:8]}... - {error_msg[:200]}")
 
                 elif status == "running" and current_db_status in ("queued", "processing"):
@@ -433,7 +439,6 @@ def poll_processing_tasks():
                             UPDATE tasks SET status = 'processing' WHERE id = ?
                         """, (task_id,))
                         conn.commit()
-                        conn.close()
                         print(f"🔄 任务开始执行: {task_id[:8]}...")
 
                 elif status == "queued" and current_db_status == "processing":
@@ -444,7 +449,6 @@ def poll_processing_tasks():
                         UPDATE tasks SET status = 'queued' WHERE id = ?
                     """, (task_id,))
                     conn.commit()
-                    conn.close()
                     print(f"⏳ 任务修正为排队中: {task_id[:8]}...")
 
                 # 其他状态（queued/not_found/running with processing）→ 继续等待
@@ -457,17 +461,30 @@ def poll_processing_tasks():
 
 
 def process_task_worker():
-    """后台任务处理工作线程（两阶段：提交 pending + 轮询 processing）"""
-    print("✅ 任务处理工作线程已启动（两阶段模式：提交+轮询）")
+    """后台任务处理工作线程（两阶段：提交 pending + 轮询 processing）
+    性能优化：动态轮询间隔 —— 无活跃任务时降频，减少无效 CPU 和 HTTP 开销
+    """
+    print("✅ 任务处理工作线程已启动（两阶段模式：提交+轮询，动态间隔）")
 
     while True:
         try:
+            # 先检查是否有活跃任务，决定轮询间隔
+            try:
+                conn = get_db()
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM tasks WHERE status IN ('pending','queued','processing')")
+                active_count = cursor.fetchone()[0]
+            except Exception:
+                active_count = 0
+
             submit_pending_tasks()
             poll_processing_tasks()
         except Exception as e:
             print(f"任务处理线程异常: {e}")
+            active_count = 1  # 异常时保持高频轮询
 
-        time.sleep(2)
+        # 动态间隔：无活跃任务时 10 秒，有活跃任务时 2 秒
+        time.sleep(10 if active_count == 0 else 2)
 
 # 启动后台任务处理线程（只有一个）
 task_worker_thread = threading.Thread(target=process_task_worker, daemon=True)
@@ -597,6 +614,50 @@ async def get_preset_audio(filename: str):
     audio_b64 = base64.b64encode(audio_data).decode()
     return {"filename": filename, "base64": audio_b64}
 
+@app.get("/api/presets/image/{filename}")
+async def get_preset_image(filename: str):
+    """获取预置图片文件（返回base64）"""
+    image_file = STATIC_DIR / "presets" / "images" / filename
+    if not image_file.exists():
+        raise HTTPException(status_code=404, detail="图片文件不存在")
+
+    with open(image_file, "rb") as f:
+        image_data = f.read()
+
+    suffix = image_file.suffix.lower()
+    mime_map = {'.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp'}
+    mime_type = mime_map.get(suffix, 'image/jpeg')
+    image_b64 = base64.b64encode(image_data).decode()
+    return {"filename": filename, "mime_type": mime_type, "base64": image_b64}
+
+@app.get("/api/presets/videos")
+async def get_video_presets():
+    """获取示例视频列表"""
+    index_file = STATIC_DIR / "presets" / "videos" / "index.json"
+    if not index_file.exists():
+        return {"videos": []}
+
+    with open(index_file, "r", encoding="utf-8") as f:
+        videos = json.load(f)
+
+    return {"videos": videos}
+
+@app.get("/api/presets/video/{filename}")
+async def get_preset_video(filename: str):
+    """获取预置视频文件（返回base64）"""
+    video_file = STATIC_DIR / "presets" / "videos" / filename
+    if not video_file.exists():
+        raise HTTPException(status_code=404, detail="视频文件不存在")
+
+    with open(video_file, "rb") as f:
+        video_data = f.read()
+
+    suffix = video_file.suffix.lower()
+    mime_map = {'.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime'}
+    mime_type = mime_map.get(suffix, 'video/mp4')
+    video_b64 = base64.b64encode(video_data).decode()
+    return {"filename": filename, "mime_type": mime_type, "base64": video_b64}
+
 @app.post("/api/workflows")
 async def create_workflow(config: WorkflowConfig):
     """创建新工作流配置"""
@@ -661,7 +722,7 @@ async def generate_video(request: GenerateRequest):
         VALUES (?, ?, ?, 'pending', ?)
     """, (task_id, request.model, json.dumps(request.data), datetime.now().isoformat()))
     conn.commit()
-    conn.close()
+
 
     return {
         "task_id": task_id,
@@ -679,7 +740,7 @@ async def get_task_status(task_id: str):
         FROM tasks WHERE id = ?
     """, (task_id,))
     row = cursor.fetchone()
-    conn.close()
+
 
     if not row:
         raise HTTPException(status_code=404, detail="任务不存在")
@@ -724,7 +785,7 @@ async def list_tasks(limit: int = Query(default=50, le=200)):
         LIMIT ?
     """, (limit,))
     rows = cursor.fetchall()
-    conn.close()
+
 
     tasks = []
     progress_dir = Path("/tmp/comfyui_progress")
@@ -774,14 +835,14 @@ async def cancel_task(task_id: str):
     row = cursor.fetchone()
 
     if not row:
-        conn.close()
+
         raise HTTPException(status_code=404, detail="任务不存在")
 
     current_status = row["status"]
 
     # 只允许取消 pending/queued/processing 状态的任务
     if current_status not in ['pending', 'queued', 'processing']:
-        conn.close()
+
         raise HTTPException(status_code=400, detail=f"无法取消状态为 {current_status} 的任务")
 
     # 更新任务状态为 cancelled
@@ -791,7 +852,7 @@ async def cancel_task(task_id: str):
         WHERE id = ?
     """, (datetime.now().isoformat(), task_id))
     conn.commit()
-    conn.close()
+
 
     return {"message": "任务已取消", "task_id": task_id}
 
@@ -804,9 +865,9 @@ async def sync_from_comfyui():
 
     # 1. 查询 ComfyUI 队列
     try:
-        resp = requests.get(f"{API_BASE_URL}/../queue", timeout=10)
+        resp = HTTP_SESSION.get(f"{API_BASE_URL}/../queue", timeout=10)
         # 直接查 ComfyUI 而非 proxy
-        resp = requests.get("http://localhost:8188/queue", timeout=10)
+        resp = HTTP_SESSION.get("http://localhost:8188/queue", timeout=10)
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"无法连接 ComfyUI: {resp.status_code}")
         queue_data = resp.json()
@@ -872,7 +933,7 @@ async def sync_from_comfyui():
             # 检测实际模型（从 proxy 获取可用模型列表）
             actual_model = "MiniMax_H3"
             try:
-                proxy_resp = requests.get(f"{API_BASE_URL}/", timeout=5)
+                proxy_resp = HTTP_SESSION.get(f"{API_BASE_URL}/", timeout=5)
                 if proxy_resp.status_code == 200:
                     models = proxy_resp.json().get("available_models", [])
                     if models:
@@ -902,7 +963,7 @@ async def sync_from_comfyui():
             imported += 1
 
     conn.commit()
-    conn.close()
+
 
     return {"imported": imported, "updated": updated, "total_in_queue": len(all_comfyui_prompts)}
 
@@ -911,7 +972,7 @@ async def sync_from_comfyui():
 async def comfyui_queue():
     """直接查询 ComfyUI 的实时队列，并匹配我们的任务信息"""
     try:
-        resp = requests.get("http://localhost:8188/queue", timeout=10)
+        resp = HTTP_SESSION.get("http://localhost:8188/queue", timeout=10)
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"ComfyUI 返回 {resp.status_code}")
         queue_data = resp.json()
@@ -961,7 +1022,7 @@ async def comfyui_queue():
                         "model_name": row["model"],
                         "prompt_text": (task_data.get("prompt", "") or "")[:100],
                     }
-        conn.close()
+
     except Exception:
         pass
 
@@ -1011,7 +1072,7 @@ async def comfyui_queue():
 async def api_status():
     """检查 API 服务状态"""
     try:
-        response = requests.get(f"{API_BASE_URL}/", timeout=5)
+        response = HTTP_SESSION.get(f"{API_BASE_URL}/", timeout=5)
         if response.status_code == 200:
             return {
                 "api_status": "ok",
@@ -1035,7 +1096,7 @@ async def api_status():
 async def comfyui_health():
     """检查 ComfyUI 是否可用（用于前端显示友好提示）"""
     try:
-        resp = requests.get(f"{API_BASE_URL}/health", timeout=5)
+        resp = HTTP_SESSION.get(f"{API_BASE_URL}/health", timeout=5)
         if resp.status_code == 200:
             data = resp.json()
             return {
@@ -1106,34 +1167,39 @@ async def browser_list(path: str = "", offset: int = 0, limit: int = 100):
         if not full_path.is_dir():
             raise HTTPException(status_code=400, detail="路径不是目录")
 
-        # 读取目录内容
+        # 性能优化：用 os.scandir 替代 iterdir()，一次 syscall 获取 stat 信息
+        _IMG_EXT = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}
+        _AUD_EXT = {'.mp3', '.wav', '.ogg', '.flac', '.aac'}
+        _VID_EXT = {'.mp4', '.avi', '.mov', '.mkv', '.webm'}
+
         all_items = []
-        for item in full_path.iterdir():
-            try:
-                item_info = {
-                    "name": item.name,
-                    "path": str(item.relative_to(COMFYUI_INPUT_DIR)),
-                    "is_dir": item.is_dir(),
-                    "size": item.stat().st_size if item.is_file() else 0,
-                    "modified": item.stat().st_mtime
-                }
+        with os.scandir(full_path) as entries:
+            for entry in entries:
+                try:
+                    stat = entry.stat()
+                    is_dir = entry.is_dir()
+                    item_info = {
+                        "name": entry.name,
+                        "path": str(Path(entry.path).relative_to(COMFYUI_INPUT_DIR)),
+                        "is_dir": is_dir,
+                        "size": stat.st_size if not is_dir else 0,
+                        "modified": stat.st_mtime,
+                    }
 
-                # 判断文件类型
-                if item.is_file():
-                    suffix = item.suffix.lower()
-                    if suffix in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']:
-                        item_info['type'] = 'image'
-                    elif suffix in ['.mp3', '.wav', '.ogg', '.flac', '.aac']:
-                        item_info['type'] = 'audio'
-                    elif suffix in ['.mp4', '.avi', '.mov', '.mkv', '.webm']:
-                        item_info['type'] = 'video'
-                    else:
-                        item_info['type'] = 'file'
+                    if not is_dir:
+                        suffix = Path(entry.name).suffix.lower()
+                        if suffix in _IMG_EXT:
+                            item_info['type'] = 'image'
+                        elif suffix in _AUD_EXT:
+                            item_info['type'] = 'audio'
+                        elif suffix in _VID_EXT:
+                            item_info['type'] = 'video'
+                        else:
+                            item_info['type'] = 'file'
 
-                all_items.append(item_info)
-            except OSError:
-                # 跳过无法访问的文件
-                continue
+                    all_items.append(item_info)
+                except OSError:
+                    continue
 
         # 排序：目录在前，然后按名称排序
         all_items.sort(key=lambda x: (not x['is_dir'], x['name'].lower()))
@@ -1241,9 +1307,37 @@ async def browser_file_base64(path: str):
 
 # ========== 视频缩略图 API ==========
 
+# ── 性能优化：缩略图磁盘缓存，避免重复 ffmpeg 调用 ──
+_THUMB_CACHE_DIR = Path("/tmp/webui_thumb_cache")
+_THUMB_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+def _thumb_cache_key(source_path: Path) -> Path:
+    """基于源文件路径 + mtime 生成缓存 key"""
+    stat = source_path.stat()
+    key = hashlib.md5(f"{source_path}:{stat.st_size}:{stat.st_mtime}".encode()).hexdigest()
+    return _THUMB_CACHE_DIR / f"{key}.jpg"
+
+def _generate_video_thumb(source_path: Path, dest_path: Path):
+    """用 ffmpeg 提取视频第一帧作为缩略图"""
+    subprocess.run([
+        'ffmpeg', '-i', str(source_path),
+        '-vframes', '1', '-q:v', '3',
+        '-vf', 'scale=320:-1',
+        str(dest_path), '-y'
+    ], capture_output=True, check=True, timeout=10)
+
+def _generate_image_thumb(source_path: Path, dest_path: Path, size: int = 300):
+    """用 ffmpeg 生成图片缩略图"""
+    subprocess.run([
+        'ffmpeg', '-i', str(source_path),
+        '-vf', f'scale={size}:-1',
+        '-q:v', '3',
+        str(dest_path), '-y'
+    ], capture_output=True, check=True, timeout=10)
+
 @app.get("/api/browser/video-thumbnail/{path:path}")
 async def get_video_thumbnail(path: str):
-    """生成视频缩略图（提取第一帧）"""
+    """生成视频缩略图（带磁盘缓存）"""
     try:
         full_path = resolve_safe_path(path)
 
@@ -1254,31 +1348,22 @@ async def get_video_thumbnail(path: str):
         if suffix not in ['.mp4', '.avi', '.mov', '.mkv', '.webm']:
             raise HTTPException(status_code=400, detail="不是视频文件")
 
-        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-            tmp_path = tmp.name
-
-        try:
-            subprocess.run([
-                'ffmpeg', '-i', str(full_path),
-                '-vframes', '1',
-                '-q:v', '2',
-                tmp_path,
-                '-y'
-            ], capture_output=True, check=True, timeout=10)
-
-            with open(tmp_path, 'rb') as f:
-                thumbnail_data = f.read()
-
+        cache_file = _thumb_cache_key(full_path)
+        if cache_file.exists():
             return Response(
-                content=thumbnail_data,
+                content=cache_file.read_bytes(),
                 media_type='image/jpeg',
-                headers={'Cache-Control': 'public, max-age=3600'}
+                headers={'Cache-Control': 'public, max-age=86400', 'X-Cache': 'HIT'}
             )
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+
+        # 缓存未命中，生成缩略图
+        _generate_video_thumb(full_path, cache_file)
+
+        return Response(
+            content=cache_file.read_bytes(),
+            media_type='image/jpeg',
+            headers={'Cache-Control': 'public, max-age=86400', 'X-Cache': 'MISS'}
+        )
 
     except subprocess.CalledProcessError:
         raise HTTPException(status_code=500, detail="视频处理失败")
@@ -1293,7 +1378,7 @@ async def get_video_thumbnail(path: str):
 
 @app.get("/api/browser/image-thumbnail/{path:path}")
 async def get_image_thumbnail(path: str, size: int = Query(default=300, le=800)):
-    """生成图片缩略图"""
+    """生成图片缩略图（带磁盘缓存）"""
     try:
         full_path = resolve_safe_path(path)
 
@@ -1304,31 +1389,25 @@ async def get_image_thumbnail(path: str, size: int = Query(default=300, le=800))
         if suffix not in ['.png', '.jpg', '.jpeg', '.webp', '.bmp']:
             raise HTTPException(status_code=400, detail="不是图片文件")
 
-        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-            tmp_path = tmp.name
+        # 缓存 key 包含 size 参数
+        stat = full_path.stat()
+        key = hashlib.md5(f"{full_path}:{stat.st_size}:{stat.st_mtime}:{size}".encode()).hexdigest()
+        cache_file = _THUMB_CACHE_DIR / f"{key}.jpg"
 
-        try:
-            subprocess.run([
-                'ffmpeg', '-i', str(full_path),
-                '-vf', f'scale={size}:-1',
-                '-q:v', '3',
-                tmp_path,
-                '-y'
-            ], capture_output=True, check=True, timeout=10)
-
-            with open(tmp_path, 'rb') as f:
-                thumbnail_data = f.read()
-
+        if cache_file.exists():
             return Response(
-                content=thumbnail_data,
+                content=cache_file.read_bytes(),
                 media_type='image/jpeg',
-                headers={'Cache-Control': 'public, max-age=3600'}
+                headers={'Cache-Control': 'public, max-age=86400', 'X-Cache': 'HIT'}
             )
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+
+        _generate_image_thumb(full_path, cache_file, size)
+
+        return Response(
+            content=cache_file.read_bytes(),
+            media_type='image/jpeg',
+            headers={'Cache-Control': 'public, max-age=86400', 'X-Cache': 'MISS'}
+        )
 
     except subprocess.CalledProcessError:
         raise HTTPException(status_code=500, detail="图片处理失败")
@@ -1342,10 +1421,10 @@ async def get_image_thumbnail(path: str, size: int = Query(default=300, le=800))
 # ========== 历史记录 API ==========
 
 def resolve_output_path(relative_path: str) -> Path:
-    """解析输出目录下的路径并确保安全（允许访问整个输出目录）"""
-    base = COMFYUI_OUTPUT_DIR.resolve()
+    """解析文件管理根目录下的路径并确保安全（允许访问 FILE_MANAGER_ROOT 下的所有内容）"""
+    base = FILE_MANAGER_ROOT.resolve()
     if relative_path:
-        full_path = (COMFYUI_OUTPUT_DIR / relative_path).resolve()
+        full_path = (FILE_MANAGER_ROOT / relative_path).resolve()
     else:
         full_path = base
 
@@ -1356,7 +1435,7 @@ def resolve_output_path(relative_path: str) -> Path:
 
 @app.get("/api/history/list")
 async def history_list(path: str = "", offset: int = 0, limit: int = 50):
-    """浏览历史生成记录目录（支持分页）"""
+    """浏览文件管理目录（支持分页，根目录为 /mnt/storage）"""
     try:
         full_path = resolve_output_path(path)
 
@@ -1366,32 +1445,43 @@ async def history_list(path: str = "", offset: int = 0, limit: int = 50):
         if not full_path.is_dir():
             raise HTTPException(status_code=400, detail="路径不是目录")
 
+        _IMG_EXT = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}
+        _VID_EXT = {'.mp4', '.avi', '.mov', '.mkv', '.webm'}
+        _AUD_EXT = {'.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a', '.wma'}
+        _TXT_EXT = {'.txt', '.json', '.md', '.csv', '.srt', '.lrc', '.log'}
+
         all_items = []
-        for item in full_path.iterdir():
-            try:
-                stat = item.stat()
-                item_info = {
-                    "name": item.name,
-                    "path": str(item.relative_to(COMFYUI_OUTPUT_DIR)),
-                    "is_dir": item.is_dir(),
-                    "size": stat.st_size if item.is_file() else 0,
-                    "modified": stat.st_mtime
-                }
+        with os.scandir(full_path) as entries:
+            for entry in entries:
+                try:
+                    stat = entry.stat()
+                    is_dir = entry.is_dir()
+                    item_info = {
+                        "name": entry.name,
+                        "path": str(Path(entry.path).relative_to(FILE_MANAGER_ROOT)),
+                        "is_dir": is_dir,
+                        "size": stat.st_size if not is_dir else 0,
+                        "modified": stat.st_mtime,
+                    }
 
-                if item.is_file():
-                    suffix = item.suffix.lower()
-                    if suffix in ['.mp4', '.avi', '.mov', '.mkv', '.webm']:
-                        item_info['type'] = 'video'
-                    elif suffix in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']:
-                        item_info['type'] = 'image'
-                    elif suffix in ['.json']:
-                        item_info['type'] = 'metadata'
-                    else:
-                        item_info['type'] = 'file'
+                    if not is_dir:
+                        suffix = Path(entry.name).suffix.lower()
+                        if suffix in _VID_EXT:
+                            item_info['type'] = 'video'
+                        elif suffix in _IMG_EXT:
+                            item_info['type'] = 'image'
+                        elif suffix in _AUD_EXT:
+                            item_info['type'] = 'audio'
+                        elif suffix in _TXT_EXT:
+                            item_info['type'] = 'text'
+                        elif suffix == '.json':
+                            item_info['type'] = 'text'
+                        else:
+                            item_info['type'] = 'file'
 
-                all_items.append(item_info)
-            except OSError:
-                continue
+                    all_items.append(item_info)
+                except OSError:
+                    continue
 
         # 排序：目录在前，文件按修改时间倒序（最新的在前）
         all_items.sort(key=lambda x: (not x['is_dir'], -x.get('modified', 0)))
@@ -1405,17 +1495,17 @@ async def history_list(path: str = "", offset: int = 0, limit: int = 50):
             "total": total,
             "offset": offset,
             "limit": limit,
-            "base_dir": str(COMFYUI_OUTPUT_DIR)
+            "base_dir": str(FILE_MANAGER_ROOT)
         }
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"读取历史目录失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"读取目录失败: {str(e)}")
 
 @app.get("/api/history/video/{path:path}")
 async def history_video(path: str):
-    """直接提供输出目录下的视频文件"""
+    """直接提供输出目录下的视频文件（流式传输，避免大文件全量加载内存）"""
     try:
         full_path = resolve_output_path(path)
 
@@ -1431,13 +1521,24 @@ async def history_video(path: str):
             '.webm': 'video/webm'
         }
         mime_type = mime_map.get(suffix, 'application/octet-stream')
+        file_size = full_path.stat().st_size
 
-        return Response(
-            content=full_path.read_bytes(),
+        def iter_file():
+            with open(full_path, "rb") as f:
+                while True:
+                    chunk = f.read(64 * 1024)  # 64KB chunks
+                    if not chunk:
+                        break
+                    yield chunk
+
+        return StreamingResponse(
+            iter_file(),
             media_type=mime_type,
             headers={
                 'Content-Disposition': make_content_disposition(full_path.name),
-                'Cache-Control': 'public, max-age=300'
+                'Cache-Control': 'public, max-age=300',
+                'Content-Length': str(file_size),
+                'Accept-Ranges': 'bytes',
             }
         )
 
@@ -1445,6 +1546,7 @@ async def history_video(path: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"读取视频失败: {str(e)}")
+
 
 @app.get("/api/history/video-thumbnail/{path:path}")
 async def history_video_thumbnail(path: str):
@@ -1455,31 +1557,21 @@ async def history_video_thumbnail(path: str):
         if not full_path.exists() or not full_path.is_file():
             raise HTTPException(status_code=404, detail="文件不存在")
 
-        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-            tmp_path = tmp.name
-
-        try:
-            subprocess.run([
-                'ffmpeg', '-i', str(full_path),
-                '-vframes', '1',
-                '-q:v', '2',
-                tmp_path,
-                '-y'
-            ], capture_output=True, check=True, timeout=10)
-
-            with open(tmp_path, 'rb') as f:
-                thumbnail_data = f.read()
-
+        cache_file = _thumb_cache_key(full_path)
+        if cache_file.exists():
             return Response(
-                content=thumbnail_data,
+                content=cache_file.read_bytes(),
                 media_type='image/jpeg',
-                headers={'Cache-Control': 'public, max-age=3600'}
+                headers={'Cache-Control': 'public, max-age=86400', 'X-Cache': 'HIT'}
             )
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+
+        _generate_video_thumb(full_path, cache_file)
+
+        return Response(
+            content=cache_file.read_bytes(),
+            media_type='image/jpeg',
+            headers={'Cache-Control': 'public, max-age=86400', 'X-Cache': 'MISS'}
+        )
 
     except subprocess.CalledProcessError:
         raise HTTPException(status_code=500, detail="视频处理失败")
@@ -1520,6 +1612,112 @@ async def history_image(path: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"读取图片失败: {str(e)}")
+
+@app.get("/api/history/audio/{path:path}")
+async def history_audio(path: str):
+    """直接提供文件管理目录下的音频文件（流式传输）"""
+    try:
+        full_path = resolve_output_path(path)
+
+        if not full_path.exists() or not full_path.is_file():
+            raise HTTPException(status_code=404, detail="文件不存在")
+
+        suffix = full_path.suffix.lower()
+        mime_map = {
+            '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
+            '.ogg': 'audio/ogg', '.flac': 'audio/flac',
+            '.aac': 'audio/aac', '.m4a': 'audio/mp4',
+            '.wma': 'audio/x-ms-wma'
+        }
+        mime_type = mime_map.get(suffix, 'application/octet-stream')
+
+        return Response(
+            content=full_path.read_bytes(),
+            media_type=mime_type,
+            headers={
+                'Content-Disposition': make_content_disposition(full_path.name),
+                'Cache-Control': 'public, max-age=300'
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"读取音频失败: {str(e)}")
+
+@app.get("/api/history/text/{path:path}")
+async def history_text(path: str):
+    """提供文件管理目录下的文本文件内容（UTF-8 文本）"""
+    try:
+        full_path = resolve_output_path(path)
+
+        if not full_path.exists() or not full_path.is_file():
+            raise HTTPException(status_code=404, detail="文件不存在")
+
+        # 限制大小：最多 2MB
+        if full_path.stat().st_size > 2 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="文件过大，无法预览（最大 2MB）")
+
+        try:
+            content = full_path.read_text(encoding='utf-8')
+        except UnicodeDecodeError:
+            content = full_path.read_text(encoding='gbk', errors='replace')
+
+        return Response(
+            content=content,
+            media_type='text/plain; charset=utf-8',
+            headers={
+                'Content-Disposition': make_content_disposition(full_path.name),
+                'Cache-Control': 'public, max-age=60'
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"读取文本失败: {str(e)}")
+
+@app.get("/api/history/file-base64/{path:path}")
+async def history_file_base64(path: str):
+    """返回文件管理目录下文件的 base64 编码（用于添加到参考槽位）"""
+    try:
+        full_path = resolve_output_path(path)
+
+        if not full_path.exists() or not full_path.is_file():
+            raise HTTPException(status_code=404, detail="文件不存在")
+
+        # 限制大小：最多 50MB（防止内存爆）
+        if full_path.stat().st_size > 50 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="文件过大（最大 50MB）")
+
+        with open(full_path, "rb") as f:
+            file_data = f.read()
+
+        file_b64 = base64.b64encode(file_data).decode()
+
+        suffix = full_path.suffix.lower()
+        mime_map = {
+            '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+            '.png': 'image/png', '.gif': 'image/gif',
+            '.webp': 'image/webp', '.bmp': 'image/bmp',
+            '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
+            '.ogg': 'audio/ogg', '.flac': 'audio/flac',
+            '.aac': 'audio/aac', '.m4a': 'audio/mp4',
+            '.mp4': 'video/mp4', '.webm': 'video/webm',
+            '.mov': 'video/quicktime', '.avi': 'video/x-msvideo',
+        }
+        mime_type = mime_map.get(suffix, 'application/octet-stream')
+
+        return {
+            "filename": full_path.name,
+            "mime_type": mime_type,
+            "base64": file_b64
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"读取文件失败: {str(e)}")
 
 # ========== 历史记录删除 ==========
 

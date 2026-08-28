@@ -1,5 +1,10 @@
 [
   {
+    "name": "卡通玩偶-动画展示",
+    "description": "卡通玩偶角色动画，10秒，1张参考图+音频+视频",
+    "prompt": "subject_definitions:\n<Subject 1> 是 <Picture 1> 中的可爱卡通玩偶，有着圆润的身体、大大的眼睛和柔软的外观。\n<Subject 2> 是 <Video 1> 中的场景背景和运镜方式。\n<Audio 1> 是卡通玩偶的语音音色参考，声音活泼可爱。\n\n口播稿（10秒，语气活泼可爱）：\n\"大家好！我是你们的新朋友～今天想和大家一起开心玩耍，你们准备好了吗？\"\n\n【时间分配】\n0-4s（打招呼）：卡通玩偶挥挥手，露出开心的表情。\n4-8s（互动）：玩偶做出可爱的动作，表情生动活泼。\n8-10s（结尾）：玩偶微笑定格，画面温馨可爱。\n\nsummary:\n[reference generation + audio reference + video reference] 目标视频以 <Video 1> 作为背景和运镜参考，展示 <Subject 1> 进行活泼可爱的动画表演，动作自然流畅，表情丰富，使用 <Audio 1> 作为语音音色参考。\n\ndetailed_description:\n<Subject 1>（卡通玩偶）作为画面主体，在 <Subject 2>（<Video 1> 的场景背景）中，按照 <Video 1> 的运镜方式进行拍摄。玩偶做出挥手打招呼的动作，大眼睛眨巴，身体轻微摇摆，整体动作柔和自然，充满童趣和活力。\n\noverall_soundscape:\n轻快的室内环境。\n\nnon_diegetic_music:\n轻快活泼的卡通风格背景音乐，节奏欢快。"
+  },
+  {
     "name": "产品发布-技术讲解",
     "description": "MiniMax H3产品发布口播，15秒，2张参考图",
     "prompt": "subject_definitions:\n<Subject 1> 是 <Picture 1> 中的年轻男性，穿着商务休闲装。\n<Subject 2> 是 <Picture 2> 中的现代办公室环境，有白色墙壁和木质桌椅。\n<Audio 1> 是 <Subject 1> (S1) 的声音音色参考。\n\n口播稿（15秒，语速适中，情绪饱满）：\n\"MiniMax H3 加速模型上线了！生成时长仅需标准版的三分之一，快来试用体验呀！\"\n\n【时间分配】\n0-5s（兴奋状态）：\"MiniMax H3 加速模型上线了！\"\n5-10s（核心信息）：\"生成时长仅需标准版的三分之一\"\n10-15s（行动号召）：\"快来试用体验呀！\"\n\nsummary:\n[reference generation + audio reference] 目标视频展示 <Subject 1> 在 <Subject 2> 中进行产品发布口播，使用 <Audio 1> 作为语音音色参考。\n\ndetailed_description:\n<Subject 1> 在 <Subject 2> 环境中面带微笑看向镜头，表情充满热情。0-5s兴奋地说出开场白，5-10s语调平稳专业地介绍核心信息，10-15s加快语速发出行动号召，最后露出自信微笑。\n\noverall_soundscape:\n安静的室内环境。\n\nnon_diegetic_music:\n轻快的背景音乐，音量较低。"
