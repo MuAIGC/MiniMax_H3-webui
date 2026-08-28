@@ -5,20 +5,28 @@ ComfyUI 多工作流 API 代理服务器
 """
 
 import base64
+import copy
 import io
 import json
+import os
+import re
+import threading
 import time
+import traceback
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-app = FastAPI(title="ComfyUI Multi-Workflow API", version="2.0.0")
+app = FastAPI(title="ComfyUI Multi-Workflow API", version="2.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -31,6 +39,13 @@ app.add_middleware(
 COMFYUI_URL = "http://localhost:8188"
 WORKFLOW_CONFIGS_DIR = Path(__file__).parent / "workflow_configs"
 
+# ── 性能优化：HTTP 连接池，复用 TCP 连接 ──
+_retry_strategy = Retry(total=2, backoff_factor=0.3, status_forcelist=[502, 503, 504])
+_http_adapter = HTTPAdapter(max_retries=_retry_strategy, pool_connections=10, pool_maxsize=20)
+HTTP_SESSION = requests.Session()
+HTTP_SESSION.mount("http://", _http_adapter)
+HTTP_SESSION.mount("https://", _http_adapter)
+
 
 class WorkflowExecutor:
     """通用工作流执行引擎"""
@@ -41,11 +56,21 @@ class WorkflowExecutor:
         self.workflow_path = config["workflow_path"]
         self.inputs_config = config["inputs"]
         self.output_config = config["output"]
-    
+        # ── 性能优化：workflow 缓存 ──
+        self._cached_workflow: Optional[Dict] = None
+        self._cache_mtime: float = 0
+
     def load_workflow(self) -> Dict:
-        """加载工作流 JSON"""
-        with open(self.workflow_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        """加载工作流 JSON（带文件修改时间缓存，避免重复读盘）"""
+        try:
+            mtime = os.path.getmtime(self.workflow_path)
+        except OSError:
+            mtime = 0
+        if self._cached_workflow is None or mtime != self._cache_mtime:
+            with open(self.workflow_path, "r", encoding="utf-8") as f:
+                self._cached_workflow = json.load(f)
+            self._cache_mtime = mtime
+        return self._cached_workflow
     
     def detect_format(self, data: bytes) -> tuple:
         """检测文件类型"""
@@ -64,11 +89,11 @@ class WorkflowExecutor:
         return ".bin", "application/octet-stream"
     
     def upload_file(self, data: bytes, filename_hint: str) -> str:
-        """上传文件到 ComfyUI"""
+        """上传文件到 ComfyUI（overwrite=true，相同文件名会覆盖而非新增）"""
         ext, mime = self.detect_format(data)
         name = f"{filename_hint}{ext}"
-        
-        response = requests.post(
+
+        response = HTTP_SESSION.post(
             f"{COMFYUI_URL}/upload/image",
             files={"image": (name, io.BytesIO(data), mime)},
             data={"type": "input", "overwrite": "true"},
@@ -76,26 +101,31 @@ class WorkflowExecutor:
         )
         if response.status_code != 200:
             raise Exception(f"上传失败: {response.text}")
-        
+
         return response.json().get("name", name)
-    
+
+    def _content_hash(self, data: bytes) -> str:
+        """计算文件内容的短哈希，用于去重（相同内容 → 相同文件名）"""
+        import hashlib
+        return hashlib.md5(data).hexdigest()[:12]
+
     def process_inputs(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
         """处理输入参数，上传文件并返回映射值"""
         processed = {}
-        
+
         for input_name, input_config in self.inputs_config.items():
             if input_name not in request_data:
                 if input_config.get("required", False):
                     raise ValueError(f"缺少必需参数: {input_name}")
                 continue
-            
+
             value = request_data[input_name]
             input_type = input_config.get("type")
-            
+
             # 处理文件上传
             if input_type in ["image", "file"]:
                 file_data = None
-                
+
                 if isinstance(value, str):
                     if value.startswith("data:"):
                         # Base64 数据带前缀
@@ -109,25 +139,26 @@ class WorkflowExecutor:
                             # 如果解码失败，当作文件名
                             processed[input_name] = value
                             continue
-                
+
                 if file_data:
-                    # 上传文件
-                    filename = self.upload_file(file_data, f"api_{input_name}_{uuid.uuid4().hex[:8]}")
+                    # 使用内容哈希作为文件名，相同内容复用同一文件（避免重复）
+                    content_hash = self._content_hash(file_data)
+                    filename = self.upload_file(file_data, f"api_{input_name}_{content_hash}")
                     processed[input_name] = filename
-            
+
             elif input_type == "list":
                 # 列表类型（如多张图片）
                 if not isinstance(value, list):
                     raise ValueError(f"{input_name} 必须是列表")
-                
+
                 max_count = input_config.get("max_count")
                 if max_count and len(value) > max_count:
                     value = value[:max_count]
-                
+
                 filenames = []
                 for i, item in enumerate(value):
                     file_data = None
-                    
+
                     if isinstance(item, str):
                         if item.startswith("data:"):
                             header, encoded = item.split(",", 1)
@@ -138,9 +169,11 @@ class WorkflowExecutor:
                             except Exception:
                                 filenames.append(item)
                                 continue
-                    
+
                     if file_data:
-                        filename = self.upload_file(file_data, f"api_{input_name}_{i}_{uuid.uuid4().hex[:8]}")
+                        # 使用内容哈希作为文件名，相同内容复用同一文件（避免重复）
+                        content_hash = self._content_hash(file_data)
+                        filename = self.upload_file(file_data, f"api_{input_name}_{i}_{content_hash}")
                         filenames.append(filename)
                     elif isinstance(item, str):
                         filenames.append(item)
@@ -155,40 +188,40 @@ class WorkflowExecutor:
     
     def modify_workflow(self, workflow: Dict, processed_inputs: Dict[str, Any]) -> Dict:
         """根据配置修改工作流参数"""
-        modified = json.loads(json.dumps(workflow))  # 深拷贝
+        modified = copy.deepcopy(workflow)  # 性能优化：用 copy.deepcopy 替代 json 序列化
         nodes = modified.get("nodes", [])
-        
+
+        # 性能优化：预先构建 node_id → node 字典，避免 O(n*m) 嵌套循环
+        node_map = {node.get("id"): node for node in nodes}
+
         for input_name, input_config in self.inputs_config.items():
             if input_name not in processed_inputs:
                 continue
-            
+
             value = processed_inputs[input_name]
             mappings = input_config.get("mappings", [])
-            
+
             for mapping in mappings:
                 node_id = mapping["node_id"]
                 input_field = mapping["input_name"]
                 value_type = mapping.get("value_type", "direct")
 
-                # 查找对应节点
-                target_node = None
-                for node in nodes:
-                    if node.get("id") == node_id:
-                        target_node = node
-                        break
-
+                # O(1) 字典查找替代线性扫描
+                target_node = node_map.get(node_id)
                 if not target_node:
                     continue
 
-                # 计算正确的 widget 索引：找到 input_name 在节点 inputs 中的位置
+                # 计算正确的 widget 索引：只计算有 widget 的 inputs，跳过无 widget 的输入（如 AUDIO/MODEL 等连接类型）
                 widgets_values = target_node.get("widgets_values", [])
                 widget_idx = 0
                 node_inputs = target_node.get("inputs", [])
+                widget_count = 0
                 for i, inp in enumerate(node_inputs):
                     if inp.get("widget") is not None:
                         if inp.get("name") == input_field:
-                            widget_idx = i
+                            widget_idx = widget_count
                             break
+                        widget_count += 1
 
                 # 根据类型设置值
                 if value_type == "filename":
@@ -215,7 +248,21 @@ class WorkflowExecutor:
                     # 数字类型
                     if widget_idx < len(widgets_values):
                         widgets_values[widget_idx] = float(value)
-        
+
+        # 强制输出到 Haimi/ 子目录：修改 SaveVideo 节点 (id=92) 的 filename_prefix
+        save_node = node_map.get(92)
+        if save_node and save_node.get("type") == "SaveVideo":
+            wv = save_node.get("widgets_values", [])
+            if wv:
+                current_prefix = str(wv[0]).strip() if wv[0] else ""
+                # 确保在 Haimi/ 子目录下
+                if current_prefix.startswith("Haimi/"):
+                    pass  # 已有 Haimi/ 前缀
+                elif current_prefix:
+                    wv[0] = f"Haimi/{current_prefix}"
+                else:
+                    wv[0] = "Haimi/MiniMax_H3"
+
         return modified
     
     def frontend_to_api(self, workflow: Dict) -> Dict:
@@ -294,7 +341,7 @@ class WorkflowExecutor:
     
     def queue_prompt(self, api_prompt: Dict) -> str:
         """提交工作流到 ComfyUI"""
-        response = requests.post(
+        response = HTTP_SESSION.post(
             f"{COMFYUI_URL}/prompt",
             json={"prompt": api_prompt},
             timeout=30
@@ -306,7 +353,6 @@ class WorkflowExecutor:
 
     def save_comfyui_progress(self, task_id: str, prompt_id: str, total_nodes: int):
         """保存 ComfyUI 任务进度信息，供 WebUI 查询"""
-        import os
         progress_dir = Path("/tmp/comfyui_progress")
         progress_dir.mkdir(exist_ok=True)
         progress_file = progress_dir / f"{task_id}.json"
@@ -359,14 +405,27 @@ class WorkflowExecutor:
         error_lower = error_text.lower()
         return any(ind.lower() in error_lower for ind in oom_indicators)
 
-    def format_oom_hint(self) -> str:
-        """生成 OOM 错误的用户友好提示"""
+    def format_oom_hint(self, error_text: str = "") -> str:
+        """生成 OOM 错误的用户友好提示，从原始错误中提取显存信息"""
+        import re as _re
+        # 提取显存数据
+        allocated = _re.search(r'Currently allocated\s*:\s*([\d.]+\s*\w+)', error_text)
+        requested = _re.search(r'Requested\s*:\s*([\d.]+\s*\w+)', error_text)
+        device_limit = _re.search(r'Device limit\s*:\s*([\d.]+\s*\w+)', error_text)
+
+        mem_info = ""
+        if allocated and device_limit:
+            mem_info = f"\n当前占用 {allocated.group(1)} / {device_limit.group(1)}"
+            if requested:
+                mem_info += f"，还需 {requested.group(1)}"
+
         return (
-            "💥 显存不足（OOM）！请尝试以下操作：\n"
-            "1. 降低「分辨率质量」滑块（建议 0.3~0.5）\n"
-            "2. 缩短「视频时长」（建议 ≤10 秒）\n"
-            "3. 减少参考图片数量\n"
-            "4. 使用更小的画面比例（如 1:1 或 4:3）"
+            "💥 显存不足！请尝试以下操作：\n"
+            "① 降低「分辨率质量」（建议 0.3~0.5）\n"
+            "② 缩短「视频时长」（建议 ≤ 10 秒）\n"
+            "③ 切换更小的画面比例（如 1:1 或 4:3）\n"
+            "④ 减少参考图片数量"
+            f"{mem_info}"
         )
 
     def wait_for_completion(self, prompt_id: str, timeout: int = 900, task_id: str = "") -> Dict:
@@ -374,7 +433,7 @@ class WorkflowExecutor:
         start = time.time()
         while time.time() - start < timeout:
             try:
-                resp = requests.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=10)
+                resp = HTTP_SESSION.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=10)
                 if resp.status_code == 200:
                     history = resp.json()
                     if prompt_id in history:
@@ -386,7 +445,7 @@ class WorkflowExecutor:
                             error_msgs = status.get("messages", [])
                             error_text = str(error_msgs) if error_msgs else str(status)
                             if self.detect_oom_error(error_text):
-                                raise Exception(f"OOM_ERROR: {self.format_oom_hint()}\n\n原始错误: {error_text}")
+                                raise Exception(f"OOM_ERROR: {self.format_oom_hint(error_text)}")
                             raise Exception(f"任务失败: {error_text}")
                 # 查询 ComfyUI 队列，更新任务在队列中的状态
                 if task_id:
@@ -401,7 +460,7 @@ class WorkflowExecutor:
     def _update_comfyui_queue_status(self, task_id: str, prompt_id: str):
         """查询 ComfyUI /queue 和 /progress 更新任务状态和进度百分比"""
         try:
-            resp = requests.get(f"{COMFYUI_URL}/queue", timeout=5)
+            resp = HTTP_SESSION.get(f"{COMFYUI_URL}/queue", timeout=5)
             if resp.status_code != 200:
                 return
             queue_data = resp.json()
@@ -430,7 +489,7 @@ class WorkflowExecutor:
             if is_running:
                 # 查询节点级进度百分比
                 try:
-                    prog_resp = requests.get(f"{COMFYUI_URL}/progress/{prompt_id}", timeout=5)
+                    prog_resp = HTTP_SESSION.get(f"{COMFYUI_URL}/progress/{prompt_id}", timeout=5)
                     if prog_resp.status_code == 200:
                         prog_data = prog_resp.json()
                         max_nodes = prog_data.get("max", 0)
@@ -459,7 +518,7 @@ class WorkflowExecutor:
         if subfolder:
             params["subfolder"] = subfolder
         
-        response = requests.get(f"{COMFYUI_URL}/view", params=params, timeout=120)
+        response = HTTP_SESSION.get(f"{COMFYUI_URL}/view", params=params, timeout=120)
         if response.status_code != 200:
             raise Exception(f"下载失败: {response.text}")
         
@@ -541,27 +600,16 @@ class WorkflowExecutor:
             # 7. 提取输出
             filename, subfolder = self.extract_output(result)
 
-            
-            # 8. 下载文件
-            file_data = self.download_output(filename, subfolder)
-            
-            # 9. 保存到指定输出目录（从 webui settings.json 读取用户配置）
-            from pathlib import Path
-            import shutil
+            # 8. 计算目标保存路径
             base_dir = Path("/mnt/storage/MMX_ComfyUI-output/Haimi")
 
             # 解析 filename_prefix：支持 / 或 \ 作为目录分隔符
-            # 例："/test/测试-" → subdir="test", prefix="测试-"
-            # 例："test\\测试-" → subdir="test", prefix="测试-"
-            # 例："/测试-" → subdir="", prefix="测试-"
             filename_prefix = request_data.get("filename_prefix", "").strip()
             prefix_subdir = ""
             prefix_name = ""
             if filename_prefix:
-                # 统一用 / 分隔
                 normalized = filename_prefix.replace("\\", "/")
                 parts = normalized.split("/")
-                # 最后一个非空部分是文件名前缀，前面的是目录
                 non_empty = [p for p in parts if p]
                 if non_empty:
                     prefix_name = non_empty[-1]
@@ -572,35 +620,45 @@ class WorkflowExecutor:
                 output_dir = output_dir / prefix_subdir
             output_dir.mkdir(parents=True, exist_ok=True)
 
-            # 生成文件名
-            ext = Path(filename).suffix or ".mp4"
-            if prefix_name:
-                # 在输出目录中找到已有同名前缀的文件，自动编号
-                existing = [f.name for f in output_dir.iterdir() if f.is_file() and f.name.startswith(prefix_name)]
-                # 提取已有编号
-                max_num = 0
-                import re
-                for f_name in existing:
-                    m = re.search(r'(\d+)' + re.escape(ext) + '$', f_name)
-                    if m:
-                        max_num = max(max_num, int(m.group(1)))
-                output_filename = f"{prefix_name}{max_num + 1:03d}{ext}"
-            else:
-                # 使用原文件名
-                custom_filename = request_data.get("output_filename", "")
-                if custom_filename:
-                    if not custom_filename.endswith(('.mp4', '.webm', '.mov', '.gif')):
-                        custom_filename = f"{custom_filename}{ext}"
-                    output_filename = custom_filename
-                else:
-                    output_filename = filename
+            # ComfyUI 实际输出路径（SaveVideo 节点已直接保存到这里）
+            comfyui_output_path = Path("/mnt/storage/MMX_ComfyUI-output") / subfolder / filename if subfolder else Path("/mnt/storage/MMX_ComfyUI-output") / filename
 
-            output_path = output_dir / output_filename
-            with open(output_path, 'wb') as f:
-                f.write(file_data)
-            
-            print(f"✅ 视频已保存到: {output_path}")
-            
+            # 9. 获取文件数据：如果 ComfyUI 已保存到目标目录，直接读取，避免重复保存
+            ext = Path(filename).suffix or ".mp4"
+            if comfyui_output_path.exists() and comfyui_output_path.parent == output_dir:
+                # ComfyUI 已经保存到目标目录，直接使用
+                with open(comfyui_output_path, 'rb') as f:
+                    file_data = f.read()
+                output_filename = comfyui_output_path.name
+                output_path = comfyui_output_path
+                print(f"✅ 使用 ComfyUI 已保存的文件: {output_path}")
+            else:
+                # ComfyUI 保存到了其他位置，需要下载并另存
+                file_data = self.download_output(filename, subfolder)
+
+                if prefix_name:
+                    existing = [f.name for f in output_dir.iterdir() if f.is_file() and f.name.startswith(prefix_name)]
+                    max_num = 0
+                    _num_pattern = re.compile(r'(\d+)' + re.escape(ext) + '$')
+                    for f_name in existing:
+                        m = _num_pattern.search(f_name)
+                        if m:
+                            max_num = max(max_num, int(m.group(1)))
+                    output_filename = f"{prefix_name}{max_num + 1:03d}{ext}"
+                else:
+                    custom_filename = request_data.get("output_filename", "")
+                    if custom_filename:
+                        if not custom_filename.endswith(('.mp4', '.webm', '.mov', '.gif')):
+                            custom_filename = f"{custom_filename}{ext}"
+                        output_filename = custom_filename
+                    else:
+                        output_filename = filename
+
+                output_path = output_dir / output_filename
+                with open(output_path, 'wb') as f:
+                    f.write(file_data)
+                print(f"✅ 视频已保存到: {output_path}")
+
             # 10. 返回 base64
             file_b64 = base64.b64encode(file_data).decode()
             
@@ -615,7 +673,6 @@ class WorkflowExecutor:
             }
         
         except Exception as e:
-            import traceback
             traceback.print_exc()
             raise Exception(str(e))
 
@@ -633,17 +690,16 @@ class WorkflowExecutor:
             if task_id:
                 self.save_comfyui_progress(task_id, prompt_id, total_nodes)
                 # 保存请求数据到进度文件，供 collect_result 使用（剥离 base64 大字段）
-                import json as _json
                 progress_file = Path("/tmp/comfyui_progress") / f"{task_id}.json"
                 with open(progress_file, "r") as f:
-                    pdata = _json.load(f)
+                    pdata = json.load(f)
                 # 只保留小字段（prompt、duration 等），剥离 base64 数据（images/audio/video）
                 slim_request_data = {k: v for k, v in request_data.items()
                                      if k not in ("images", "audio", "video")}
                 pdata["request_data"] = slim_request_data
                 pdata["model_name"] = self.model_name
                 with open(progress_file, "w") as f:
-                    _json.dump(pdata, f)
+                    json.dump(pdata, f)
 
             return {
                 "prompt_id": prompt_id,
@@ -653,7 +709,6 @@ class WorkflowExecutor:
                 "message": "已提交到 ComfyUI 队列"
             }
         except Exception as e:
-            import traceback
             traceback.print_exc()
             raise Exception(str(e))
 
@@ -664,9 +719,8 @@ class WorkflowExecutor:
             return {"status": "not_found", "task_id": task_id}
 
         try:
-            import json as _json
             with open(progress_file, "r") as f:
-                pdata = _json.load(f)
+                pdata = json.load(f)
 
             # 如果已经标记为 completed（下载中/已完成），直接返回
             if pdata.get("comfyui_status") == "completed":
@@ -697,7 +751,7 @@ class WorkflowExecutor:
 
             # 检查 ComfyUI history
             try:
-                resp = requests.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=10)
+                resp = HTTP_SESSION.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=10)
                 if resp.status_code == 200:
                     history = resp.json()
                     if prompt_id in history:
@@ -711,21 +765,21 @@ class WorkflowExecutor:
                             error_text = str(error_msgs) if error_msgs else str(status)
                             # 标记失败到进度文件
                             with open(progress_file, "r") as f:
-                                pdata = _json.load(f)
+                                pdata = json.load(f)
                             pdata["comfyui_status"] = "failed"
                             if self.detect_oom_error(error_text):
-                                pdata["error"] = f"OOM_ERROR: {self.format_oom_hint()}\n\n原始错误: {error_text}"
+                                pdata["error"] = f"OOM_ERROR: {self.format_oom_hint(error_text)}"
                             else:
                                 pdata["error"] = f"任务失败: {error_text}"
                             with open(progress_file, "w") as f:
-                                _json.dump(pdata, f)
+                                json.dump(pdata, f)
                             return {"status": "failed", "task_id": task_id, "error": pdata["error"]}
             except requests.exceptions.RequestException:
                 pass
 
             # 任务还在进行中
             with open(progress_file, "r") as f:
-                pdata = _json.load(f)
+                pdata = json.load(f)
             return {
                 "status": pdata.get("comfyui_status", "running"),
                 "task_id": task_id,
@@ -743,8 +797,6 @@ class WorkflowExecutor:
 
     def _mark_completed_and_download(self, task_id, result, request_data, model_name):
         """标记任务完成（快速），然后在后台线程中下载视频"""
-        import json as _json
-        import threading
 
         progress_file = Path("/tmp/comfyui_progress") / f"{task_id}.json"
 
@@ -753,11 +805,11 @@ class WorkflowExecutor:
             filename, subfolder = self.extract_output(result)
         except Exception as e:
             with open(progress_file, "r") as f:
-                pdata = _json.load(f)
+                pdata = json.load(f)
             pdata["comfyui_status"] = "failed"
             pdata["error"] = f"提取输出失败: {str(e)}"
             with open(progress_file, "w") as f:
-                _json.dump(pdata, f)
+                json.dump(pdata, f)
             return {"status": "failed", "task_id": task_id, "error": pdata["error"]}
 
         # 计算输出路径
@@ -778,71 +830,94 @@ class WorkflowExecutor:
             output_dir = output_dir / prefix_subdir
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        ext = Path(filename).suffix or ".mp4"
-        if prefix_name:
-            import re
-            existing = [f.name for f in output_dir.iterdir() if f.is_file() and f.name.startswith(prefix_name)]
-            max_num = 0
-            for f_name in existing:
-                m = re.search(r'(\d+)' + re.escape(ext) + '$', f_name)
-                if m:
-                    max_num = max(max_num, int(m.group(1)))
-            output_filename = f"{prefix_name}{max_num + 1:03d}{ext}"
-        else:
-            custom_filename = request_data.get("output_filename", "")
-            if custom_filename:
-                if not custom_filename.endswith(('.mp4', '.webm', '.mov', '.gif')):
-                    custom_filename = f"{custom_filename}{ext}"
-                output_filename = custom_filename
-            else:
-                output_filename = filename
+        # ComfyUI 实际输出路径（SaveVideo 节点已直接保存到这里）
+        comfyui_output_path = Path("/mnt/storage/MMX_ComfyUI-output") / subfolder / filename if subfolder else Path("/mnt/storage/MMX_ComfyUI-output") / filename
 
-        output_path = output_dir / output_filename
+        ext = Path(filename).suffix or ".mp4"
+        # 如果 ComfyUI 已保存到目标目录，直接使用，不再重复下载
+        if comfyui_output_path.exists() and comfyui_output_path.parent == output_dir:
+            output_filename = comfyui_output_path.name
+            output_path = comfyui_output_path
+            file_size = comfyui_output_path.stat().st_size
+            need_download = False
+        else:
+            if prefix_name:
+                existing = [f.name for f in output_dir.iterdir() if f.is_file() and f.name.startswith(prefix_name)]
+                max_num = 0
+                _num_pattern = re.compile(r'(\d+)' + re.escape(ext) + '$')
+                for f_name in existing:
+                    m = _num_pattern.search(f_name)
+                    if m:
+                        max_num = max(max_num, int(m.group(1)))
+                output_filename = f"{prefix_name}{max_num + 1:03d}{ext}"
+            else:
+                custom_filename = request_data.get("output_filename", "")
+                if custom_filename:
+                    if not custom_filename.endswith(('.mp4', '.webm', '.mov', '.gif')):
+                        custom_filename = f"{custom_filename}{ext}"
+                    output_filename = custom_filename
+                else:
+                    output_filename = filename
+            output_path = output_dir / output_filename
+            file_size = 0
+            need_download = True
+
         relative_path = str(output_path.relative_to(Path("/mnt/storage/MMX_ComfyUI-output")))
 
-        # 立即标记完成，启动后台下载
+        # 立即标记完成，启动后台下载（仅在需要时）
         with open(progress_file, "r") as f:
-            pdata = _json.load(f)
+            pdata = json.load(f)
         pdata["comfyui_status"] = "completed"
         pdata["output_filename"] = output_filename
         pdata["output_path"] = relative_path
-        pdata["downloading"] = True
+        pdata["downloading"] = need_download
         with open(progress_file, "w") as f:
-            _json.dump(pdata, f)
+            json.dump(pdata, f)
 
-        # 后台线程下载
-        def _download_in_background():
-            try:
-                file_data = self.download_output(filename, subfolder)
-                with open(output_path, 'wb') as f:
-                    f.write(file_data)
-                print(f"✅ 视频已保存到: {output_path}")
+        if not need_download:
+            # ComfyUI 已保存，无需下载
+            with open(progress_file, "r") as f:
+                pdata = json.load(f)
+            pdata["downloading"] = False
+            pdata["output_size"] = file_size
+            with open(progress_file, "w") as f:
+                json.dump(pdata, f)
+            print(f"✅ 使用 ComfyUI 已保存的文件: {output_path}")
+        else:
+            # 后台线程下载
+            def _download_in_background():
+                try:
+                    file_data = self.download_output(filename, subfolder)
+                    with open(output_path, 'wb') as f:
+                        f.write(file_data)
+                    print(f"✅ 视频已保存到: {output_path}")
 
-                # 更新进度文件：下载完成，只保存文件大小（不保存 video_b64，视频已在磁盘上）
-                with open(progress_file, "r") as f:
-                    pdata = _json.load(f)
-                pdata["downloading"] = False
-                pdata["output_size"] = len(file_data)
-                with open(progress_file, "w") as f:
-                    _json.dump(pdata, f)
-            except Exception as e:
-                print(f"❌ 后台下载失败: {task_id} - {e}")
-                with open(progress_file, "r") as f:
-                    pdata = _json.load(f)
-                pdata["downloading"] = False
-                pdata["download_error"] = str(e)
-                with open(progress_file, "w") as f:
-                    _json.dump(pdata, f)
+                    # 更新进度文件：下载完成
+                    with open(progress_file, "r") as f:
+                        pdata = json.load(f)
+                    pdata["downloading"] = False
+                    pdata["output_size"] = len(file_data)
+                    with open(progress_file, "w") as f:
+                        json.dump(pdata, f)
+                except Exception as e:
+                    print(f"❌ 后台下载失败: {task_id} - {e}")
+                    with open(progress_file, "r") as f:
+                        pdata = json.load(f)
+                    pdata["downloading"] = False
+                    pdata["download_error"] = str(e)
+                    with open(progress_file, "w") as f:
+                        json.dump(pdata, f)
 
-        t = threading.Thread(target=_download_in_background, daemon=True)
-        t.start()
+            t = threading.Thread(target=_download_in_background, daemon=True)
+            t.start()
 
         return {
             "status": "completed",
             "task_id": task_id,
             "filename": output_filename,
             "output_path": relative_path,
-            "downloading": True,
+            "downloading": need_download,
+            "size": file_size if not need_download else 0,
         }
 
     def _save_completed_result(self, task_id, result, request_data, model_name):
@@ -870,11 +945,11 @@ class WorkflowExecutor:
 
             ext = Path(filename).suffix or ".mp4"
             if prefix_name:
-                import re
                 existing = [f.name for f in output_dir.iterdir() if f.is_file() and f.name.startswith(prefix_name)]
                 max_num = 0
+                _num_pattern = re.compile(r'(\d+)' + re.escape(ext) + '$')
                 for f_name in existing:
-                    m = re.search(r'(\d+)' + re.escape(ext) + '$', f_name)
+                    m = _num_pattern.search(f_name)
                     if m:
                         max_num = max(max_num, int(m.group(1)))
                 output_filename = f"{prefix_name}{max_num + 1:03d}{ext}"
@@ -947,7 +1022,7 @@ async def health():
     """健康检查，列出所有可用模型"""
     return {
         "status": "ok",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "available_models": list(workflow_executors.keys())
     }
 
@@ -1014,7 +1089,7 @@ async def submit(req: GenerateRequest):
 async def health_check():
     """检查 ComfyUI 是否可用"""
     try:
-        resp = requests.get(f"{COMFYUI_URL}/system_stats", timeout=5)
+        resp = HTTP_SESSION.get(f"{COMFYUI_URL}/system_stats", timeout=5)
         if resp.status_code == 200:
             data = resp.json()
             return {
@@ -1035,14 +1110,13 @@ async def health_check():
 async def get_result(task_id: str):
     """轮询任务结果：检查任务是否完成，完成则返回视频数据"""
     # 遍历所有 executor 找到对应的（因为进度文件里记录了 model_name）
-    import json as _json
     progress_file = Path("/tmp/comfyui_progress") / f"{task_id}.json"
     if not progress_file.exists():
         raise HTTPException(status_code=404, detail="任务进度文件不存在")
 
     try:
         with open(progress_file, "r") as f:
-            pdata = _json.load(f)
+            pdata = json.load(f)
         model_name = pdata.get("model_name", "")
     except Exception:
         model_name = ""
