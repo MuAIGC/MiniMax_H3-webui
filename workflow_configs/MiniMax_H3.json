@@ -56,6 +56,33 @@
         "field_name": "audio"
       }
     },
+    "audio_start_time": {
+      "type": "string",
+      "required": false,
+      "default": "0:00",
+      "description": "音频裁剪起始时间，格式 M:SS",
+      "mappings": [
+        {"node_id": 142, "input_name": "start_time", "value_type": "text"}
+      ]
+    },
+    "audio_end_time": {
+      "type": "string",
+      "required": false,
+      "default": "0:03",
+      "description": "音频裁剪结束时间，格式 M:SS",
+      "mappings": [
+        {"node_id": 142, "input_name": "end_time", "value_type": "text"}
+      ]
+    },
+    "filename_prefix": {
+      "type": "string",
+      "required": false,
+      "default": "Haimi/MiniMax_H3",
+      "description": "输出文件前缀（支持目录，如 Haimi/MiniMax_H3）",
+      "mappings": [
+        {"node_id": 92, "input_name": "filename_prefix", "value_type": "text"}
+      ]
+    },
     "duration": {
       "type": "float",
       "required": false,
